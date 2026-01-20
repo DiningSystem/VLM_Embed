@@ -255,50 +255,50 @@ def finetune(
                 loss = loss_dict['loss']
                 model_engine.backward(loss)
                 
-                kd_loss = loss_dict.get('kd_loss', torch.tensor(0.0))
-                contrastive_loss = loss_dict.get('contrastive_loss', torch.tensor(0.0))
-                kd_rkd_loss = loss_dict.get('kd_loss_rkd', torch.tensor(0.0))
-                ot_loss = loss_dict.get('ot_loss', torch.tensor(0.0))
-                kd_dtw_loss = loss_dict.get('kd_loss_dtw', torch.tensor(0.0))
+                # ---- retrieve losses from distiller ----
+                loss_kl = loss_dict.get('loss_kl', torch.tensor(0.0, device=loss.device))
+                loss_rank = loss_dict.get('loss_rank', torch.tensor(0.0, device=loss.device))
+                contrastive_loss = loss_dict.get('contrastive_loss', torch.tensor(0.0, device=loss.device))
 
+                # ---- bookkeeping ----
                 losses.append(loss.detach().item() * training_args.gradient_accumulation_steps)
+                kd_losses.append(loss_kl.detach().item())
                 contrastive_losses.append(contrastive_loss.detach().item())
-                kd_losses.append(kd_loss.detach().item())
-                kd_rkd_losses.append(kd_rkd_loss.detach().item())
-                ot_losses.append(ot_loss.detach().item())
-                kd_dtw_losses.append(kd_dtw_loss.detach().item())
-                
+                kd_rkd_losses.append(loss_rank.detach().item())  # reuse slot for rank loss
+
                 model_engine.step()
-                
+
                 if torch.cuda.is_available():
                     torch.cuda.synchronize()
                 step += 1
+
+            # ---- logging ----
             if dist.get_rank() == 0 and step % training_args.logging_steps == 0:
-                current_lr = None
-                try: 
+                try:
                     current_lr = optimizer.param_groups[0]['lr']
                 except Exception:
-                    print_rank("Cannot get learning rate from optimizer")
                     current_lr = None
+
                 batch_loss = sum(losses) / len(losses)
+                batch_kl_loss = sum(kd_losses) / len(kd_losses)
+                batch_rank_loss = sum(kd_rkd_losses) / len(kd_rkd_losses)
                 batch_contrastive_loss = sum(contrastive_losses) / len(contrastive_losses)
-                batch_kd_loss = sum(kd_losses) / len(kd_losses)
-                batch_kd_rkd_loss = sum(kd_rkd_losses) / len(kd_rkd_losses)
-                batch_ot_loss = sum(ot_losses) / len(ot_losses)
-                batch_kd_dtw_loss = sum(kd_dtw_losses) / len(kd_dtw_losses)
+
                 epoch_loss += sum(losses)
-                epoch_contrastive_loss += sum(contrastive_losses)
                 epoch_kd_loss += sum(kd_losses)
+                epoch_contrastive_loss += sum(contrastive_losses)
+
                 progress_bar.set_postfix({
                     'loss': f"{batch_loss:.4f}",
-                    'kd_loss': f"{batch_kd_loss:.4f}",
+                    'kl_loss': f"{batch_kl_loss:.4f}",
+                    'rank_loss': f"{batch_rank_loss:.4f}",
                     'contrastive_loss': f"{batch_contrastive_loss:.4f}",
-                    'kd_rkd_loss': f"{batch_kd_rkd_loss:.4f}",
-                    'ot_loss': f"{batch_ot_loss:.4f}",
-                    'kd_dtw_loss': f"{batch_kd_dtw_loss:.4f}",
-                    "lr": f"{current_lr:.6f}" if current_lr is not None else "N/A",
+                    'lr': f"{current_lr:.6f}" if current_lr is not None else "N/A",
                 })
                 progress_bar.update(1)
+
+        
+
                 
                 # if "wandb" in training_args.report_to:
                 #     wandb.log({
