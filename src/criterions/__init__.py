@@ -1,3 +1,6 @@
+from src.criterions.contrastive_kd_loss import ContrastiveKDLoss
+from src.criterions.contrastive_loss import ContrastiveLoss
+from src.criterions.vision_RKD import VisionRKDLoss
 from .contrastive_loss_with_RKD import ContrastiveLossWithRKD
 from .proposal_loss_with_DTW import ProposalLossWithDTW
 from .universal_logit_distillation import UniversalLogitDistillation
@@ -8,8 +11,11 @@ from .em_kd_llava_ov import EMKDLLavaLoss
 from .span_propose import SpanProposeCriterion
 from .span_propose_attn import SpanProposeCriterionWeighted
 from .span_propose_attn_only_phrase import SpanProposeCriterionWeightedOnlyPhrase
+from .penultimate_mse_loss import PenultimateMSELoss
+from .vision_encoder_kd_loss import VisionEncoderLoss
 
 criterion_list = {
+    "contrastive": ContrastiveLoss,
     "contrastive_rkd": ContrastiveLossWithRKD,
     "proposal_dtw": ProposalLossWithDTW,
     "universal_logit": UniversalLogitDistillation,
@@ -20,6 +26,10 @@ criterion_list = {
     "span_propose": SpanProposeCriterion,
     "span_propose_attn": SpanProposeCriterionWeighted,
     "span_propose_attn_only_phrase": SpanProposeCriterionWeightedOnlyPhrase,
+    "vision_rkd": VisionRKDLoss,
+    "penultimate_mse": PenultimateMSELoss,
+    "contrastive_kd": ContrastiveKDLoss,
+    "vision_encoder_kd": VisionEncoderLoss,
 }
 
 def build_criterion(args):

@@ -1,3 +1,4 @@
+mkdir -p vlm2vec_train/MMEB-train/images
 wget https://huggingface.co/datasets/TIGER-Lab/MMEB-train/resolve/main/images_zip/MSCOCO.zip
 unzip MSCOCO.zip -d ./vlm2vec_train/MMEB-train/images/
 rm MSCOCO.zip

@@ -1,13 +1,20 @@
+SUBSETS=(
+  "ImageNet-1K" "N24News" "HatefulMemes" "VOC2007" "SUN397"
+#   "OK-VQA" "A-OKVQA" "DocVQA" "InfographicsVQA" "ChartQA"
+)
+
+MODEL=Path/To/Your/checkpoint
+
 python eval_mmeb.py \
-    --model_name /workspace/ComfyUI/models/gligen/VLM_Embed/training/propose_cls/checkpoint-epoch-0 \
-    --encode_output_path ./MMEB-evaloutputs/test_mscoco_v2/ \
-    --lora --lora_r 64 --lora_alpha 64 \
+    --model_name $MODEL \
+    --encode_output_path ./MMEB-eval_outputs/Fast_VLM/ \
+    --lora True --lora_r 64 --lora_alpha 64 \
     --pooling eos \
     --model_backbone llava_qwen2 \
     --normalize True \
     --bf16 \
     --dataset_name TIGER-Lab/MMEB-eval \
-    --subset_name  MSCOCO \
+    --subset_name "${SUBSETS[@]}" \
     --dataset_split test \
     --per_device_eval_batch_size 16 \
     --image_dir eval_images/ \

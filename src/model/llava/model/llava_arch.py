@@ -140,10 +140,17 @@ class LlavaMetaForCausalLM(ABC):
 
     def encode_images(self, images):
         image_features = self.get_model().get_vision_tower()(images)
-        # print(f"Image features shape before projector: {image_features.shape}")
-        image_features = image_features.to(dtype=torch.bfloat16)
-        image_features = self.get_model().mm_projector(image_features)
-        # print(f"Image features shape after projector: {image_features.shape}")
+        if type(image_features) is list:
+            image_features = [image_feature.to(dtype=torch.bfloat16) for image_feature in image_features]
+            token_shapes = [feat.shape[1] for feat in image_features]
+            concat_feats = torch.cat(image_features, dim=1)  
+            concat_feats =  self.get_model().mm_projector(concat_feats)
+            splits = torch.split(concat_feats, token_shapes, dim=1)
+            image_features = list(splits)
+            image_features = [feat for feat in image_features]
+        else:
+            image_features = image_features.to(dtype=torch.bfloat16)
+            image_features = self.get_model().mm_projector(image_features)
         return image_features
 
     def prepare_inputs_labels_for_multimodal(
@@ -152,7 +159,6 @@ class LlavaMetaForCausalLM(ABC):
     ):
         
         vision_tower = self.get_vision_tower()
-        
         if vision_tower is None or images is None or input_ids.shape[1] == 1:
             # Return input ids, position ids, attention mask, past key values, inputs embeds, labels and None for images features
             return input_ids, position_ids, attention_mask, past_key_values, None, labels, None
@@ -160,10 +166,20 @@ class LlavaMetaForCausalLM(ABC):
         if type(images) is list or images.ndim == 5:
             if type(images) is list:
                 images = [x.unsqueeze(0) if x.ndim == 3 else x for x in images]
-            concat_images = torch.cat([image for image in images], dim=0)
+            shapes = [img.shape for img in images]
+            if len(set(shapes)) == 1:
+                # print('All images have the same shape, concatenating them for encoding.')
+                concat_images = torch.cat([image for image in images], dim=0)
+            else:
+                concat_images = [image[0] if image.ndim == 4 else image for image in images]
             image_features = self.encode_images(concat_images)
             split_sizes = [image.shape[0] for image in images]
-            image_features = torch.split(image_features, split_sizes, dim=0)
+            if type(image_features) is list:
+                image_features = [
+                    torch.cat(image_features[i:i + sz], dim=0)
+                    for i, sz in enumerate(split_sizes)]
+            else:
+                image_features = torch.split(image_features, split_sizes, dim=0)
             mm_patch_merge_type = getattr(self.config, 'mm_patch_merge_type', 'flat')
             image_aspect_ratio = getattr(self.config, 'image_aspect_ratio', 'square')
             if mm_patch_merge_type == 'flat':

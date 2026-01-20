@@ -9,7 +9,9 @@ from typing import Any
 import torch.nn as nn
 from timm.models import create_model
 
-from .mci import GlobalPool2D
+from .mci import GlobalPool2D, fastvithd
+
+from timm.models._registry import _model_entrypoints
 
 
 def load_model_config(
@@ -41,6 +43,10 @@ class MCi(nn.Module):
         self.projection_dim = None
         if "projection_dim" in kwargs:
             self.projection_dim = kwargs.get("projection_dim")
+
+        _model_entrypoints["fastvithd"] = fastvithd
+        if hasattr(create_model, "_model_default_cfgs"):
+            create_model._model_default_cfgs.pop("fastvithd", None)
 
         # Create model
         self.model = create_model(model_name, projection_dim=self.projection_dim)

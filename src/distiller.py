@@ -35,7 +35,6 @@ from peft import LoraConfig, get_peft_model, PeftModel
 from transformers import ProcessorMixin
 from qwen_vl_utils import smart_resize
 from PIL import Image
-from transformers import AutoTokenizer
 
 POS_MOD_CLASS_LABEL = "Represent the class label: "
 POS_MOD_IMAGE_CAPTION = "Represent the image caption: "
@@ -61,13 +60,16 @@ def process_image(image, resolution, max_dim=1344):
     elif resolution == "mid":
         target_max = 672
     elif resolution == "low":
-        target_max = 128
+        target_max = 448
     else:
         target_max = max_dim
 
-    # resize if larger than target_max
+    # Tính tỉ lệ scale sao cho cạnh lớn nhất = target_max
     if max_side > target_max:
-        image = image.resize((target_max, target_max))
+        scale = target_max / max_side
+        new_width = int(width * scale)
+        new_height = int(height * scale)
+        image = image.resize((new_width, new_height))
 
     return image
 
@@ -137,13 +139,19 @@ class Distiller(nn.Module):
         return teacher
     
     def get_student_processor(self):
+        if hasattr(self, 'student_processor'):
+            return self.student_processor
         processor = load_processor(self.model_args, None)
+        setattr(self, 'student_processor', processor)
         print("Student processor loaded.")
         return processor
 
     def get_teacher_processor(self):
+        if hasattr(self, 'teacher_processor'):
+            return self.teacher_processor
         model_args = self._create_model_args('teacher')
         processor = load_processor(model_args, None)
+        setattr(self, 'teacher_processor', processor)
         print("Teacher processor loaded.")
         return processor
     
@@ -222,6 +230,7 @@ class Distiller(nn.Module):
             })
         print("Projector parameters added to optimizer.")
         return optimizer
+    
 class DistillationCollator:
     def __init__(self, student_processor: ProcessorMixin, teacher_processor: ProcessorMixin,
                  model_args: ModelArguments, data_args: DataArguments, training_args: TrainingArguments,
@@ -276,10 +285,18 @@ class DistillationCollator:
         process_student_fn = process_vlm_inputs_fns[self.model_args.model_backbone]
         process_teacher_fn = process_vlm_inputs_fns[self.model_args.teacher_backbone]
         
-        processed_student_qry_inputs = process_student_fn(student_qry_inputs, processor=self.student_processor, max_length=self.data_args.max_len)
-        processed_student_pos_inputs = process_student_fn(student_pos_inputs, processor=self.student_processor, max_length=self.data_args.max_len)
-        processed_teacher_qry_inputs = process_teacher_fn(teacher_qry_inputs, processor=self.teacher_processor, max_length=self.data_args.max_len)
-        processed_teacher_pos_inputs = process_teacher_fn(teacher_pos_inputs, processor=self.teacher_processor, max_length=self.data_args.max_len)
+        processed_student_qry_inputs = process_student_fn(student_qry_inputs, processor=self.student_processor, 
+                                                          max_length=self.data_args.max_len, 
+                                                          square_padding=True)
+        processed_student_pos_inputs = process_student_fn(student_pos_inputs, processor=self.student_processor, 
+                                                          max_length=self.data_args.max_len,
+                                                          square_padding=True)
+        processed_teacher_qry_inputs = process_teacher_fn(teacher_qry_inputs, processor=self.teacher_processor, 
+                                                          max_length=self.data_args.max_len,
+                                                          square_padding=True)
+        processed_teacher_pos_inputs = process_teacher_fn(teacher_pos_inputs, processor=self.teacher_processor, 
+                                                          max_length=self.data_args.max_len,
+                                                          square_padding=True)
         
         return {
             'student_inputs':{
@@ -323,6 +340,7 @@ class DistillationDataset(Dataset):
     
     def __len__(self):
         return len(self.train_data)
+    
     def _get_image(self, img_path, backbone):
         if not img_path:
             return None

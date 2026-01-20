@@ -124,6 +124,10 @@ def finetune(
         'step_time': []
     }
     
+    if accelerator.is_main_process:
+        # config=vars(training_args) giúp lưu lại các tham số hyperparams lên wandb
+        accelerator.init_trackers("VLM_Embed_distill", config=vars(training_args))
+
     for epoch in range(training_args.num_train_epochs):
         logging_output['epoch'] = epoch + 1
         print_rank("Start iteration of epoch {}".format(epoch + 1))
@@ -214,7 +218,15 @@ def finetune(
                     "ot_loss": f"{batch_ot_loss:.4f}",
                 })
                 progress_bar.update(1)
-                    
+                accelerator.log({
+                    "train/loss": batch_loss,
+                    "train/contrastive_loss": batch_contrastive_loss,
+                    "train/kd_loss": batch_kd_loss,
+                    "train/learning_rate": optimizer.param_groups[0]['lr'],
+                    "train/kd_loss_rkd": batch_kd_rkd_loss,
+                    "train/kd_loss_dtw": batch_kd_dtw_loss,
+                    "train/ot_loss": batch_ot_loss,
+                }, step=step)
                     
         # End of epoch
         if accelerator.is_main_process:
@@ -278,14 +290,14 @@ def finetune(
             student_config = AutoConfig.from_pretrained(model_args.model_name)
             tokenizer = AutoTokenizer.from_pretrained(model_args.model_name)
             try:
-                processor = AutoProcessor.from_pretrained(model_args.model_name)
+                processor = distiller.get_student_processor()
                 processor.save_pretrained(final_ckpt_dir)
             except Exception as e:
                 print_rank(f"Error saving processor: {e}. No processor saved.")
             student_config.save_pretrained(final_ckpt_dir)
             tokenizer.save_pretrained(final_ckpt_dir)
 
-
+    accelerator.end_training()
     return logging_output
 
 def main():
