@@ -8,6 +8,8 @@ from .em_kd_llava_ov import EMKDLLavaLoss
 from .span_propose import SpanProposeCriterion
 from .span_propose_attn import SpanProposeCriterionWeighted
 from .span_propose_attn_only_phrase import SpanProposeCriterionWeightedOnlyPhrase
+from .kl_cosine_distill import kl_cosine_distill
+from .compute_effective_rank import compute_effective_rank_loss
 
 criterion_list = {
     "contrastive_rkd": ContrastiveLossWithRKD,
@@ -20,6 +22,9 @@ criterion_list = {
     "span_propose": SpanProposeCriterion,
     "span_propose_attn": SpanProposeCriterionWeighted,
     "span_propose_attn_only_phrase": SpanProposeCriterionWeightedOnlyPhrase,
+    "kl_cosine_distill_loss": kl_cosine_distill,
+    "effective_Rank_loss": compute_effective_rank_loss,
+
 }
 
 def build_criterion(args):

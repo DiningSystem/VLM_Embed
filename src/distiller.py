@@ -8,6 +8,7 @@ import math
 from datasets import load_dataset, concatenate_datasets
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import PIL
 import argparse
 from transformers import (
@@ -34,6 +35,9 @@ from src.arguments import ModelArguments, DataArguments, TrainingArguments
 from peft import LoraConfig, get_peft_model, PeftModel 
 from transformers import ProcessorMixin
 from qwen_vl_utils import smart_resize
+from src.model.modality_gated_pooling import ModalityGatedPooling
+from src.criterions.compute_effective_rank import compute_effective_rank_loss
+from src.criterions.kl_cosine_distill import kl_cosine_distill
 from PIL import Image
 from transformers import AutoTokenizer
 
@@ -99,6 +103,32 @@ class Distiller(nn.Module):
         # if self.model_args.projector_config_path is not None:
         self.set_projector()
         print("Projectors set.")
+        self.student_pool_v = ModalityGatedPooling(model_args.student_hidden_dim)
+        self.student_pool_t = ModalityGatedPooling(model_args.student_hidden_dim)
+
+        self.teacher_pool_v = ModalityGatedPooling(model_args.teacher_hidden_dim)
+        self.teacher_pool_t = ModalityGatedPooling(model_args.teacher_hidden_dim)
+
+        # load teacher pooling (Stage-1)
+        if model_args.teacher_pool_ckpt is not None:
+            ckpt = torch.load(model_args.teacher_pool_ckpt, map_location="gpu")
+            self.teacher_pool_v.load_state_dict(ckpt["vision_pool"])
+            self.teacher_pool_t.load_state_dict(ckpt["text_pool"])
+
+        # freeze teacher
+        for p in self.teacher.parameters():
+            p.requires_grad = False
+        for p in self.teacher_pool_v.parameters():
+            p.requires_grad = False
+        for p in self.teacher_pool_t.parameters():
+            p.requires_grad = False
+
+        self.tau = getattr(training_args, "tau", 0.07)
+
+        self.task_weight = training_args.task_weight
+        self.contrastive_weight = training_args.contrastive_weight
+        self.kd_weight = training_args.kd_weight
+        self.rank_weight = training_args.rank_weight
     
     def _create_model_args(self, model_type='teacher'):
         if model_type == 'teacher': 
@@ -148,11 +178,71 @@ class Distiller(nn.Module):
         return processor
     
     def forward(self, criterion, batch):
-        if self.training_args.kd_loss_type in ['span_propose_attn', 'span_propose', 'span_propose_attn_only_phrase' ]:
-            loss = criterion(self, batch, tokenizer = self.tokenizer)
-        else: 
-            loss = criterion(self, batch)
-        return loss
+        #if self.training_args.kd_loss_type in ['span_propose_attn', 'span_propose', 'span_propose_attn_only_phrase' ]:
+         #   loss = criterion(self, batch, tokenizer = self.tokenizer)
+        #else: 
+         #   loss = criterion(self, batch)
+        #return loss
+        with torch.no_grad():
+            t_out = self.teacher(**batch["teacher"])
+
+            H_T_v = t_out["vision_hidden_states"]
+            H_T_t = t_out["text_hidden_states"]
+
+            z_T_v, g_T_v = self.teacher_pool_v(H_T_v)
+            z_T_t, g_T_t = self.teacher_pool_t(H_T_t)
+
+            H_T_v_g = H_T_v * g_T_v
+            H_T_t_g = H_T_t * g_T_t
+
+        # -------- Student --------
+        s_out = self.student(**batch["student"])
+
+        H_S_v = s_out["vision_hidden_states"]
+        H_S_t = s_out["text_hidden_states"]
+
+        z_S_v, g_S_v = self.student_pool_v(H_S_v)
+        z_S_t, g_S_t = self.student_pool_t(H_S_t)
+
+        H_S_v_g = H_S_v * g_S_v
+        H_S_t_g = H_S_t * g_S_t
+
+        # -------- Losses --------
+        task_loss = criterion(s_out["logits"], batch["labels"])
+
+        contrastive_loss = F.cosine_embedding_loss(
+            z_S_v,
+            z_S_t,
+            torch.ones(z_S_v.size(0), device=z_S_v.device),
+        )
+
+        kd_loss = kl_cosine_distill(
+            z_S_v, z_S_t,
+            z_T_v, z_T_t,
+            tau=self.tau,
+        )
+
+        rank_loss = compute_effective_rank_loss(
+            H_S_v_g, H_S_t_g,
+            H_T_v_g, H_T_t_g,
+        )
+
+        loss = (
+            self.task_weight * task_loss
+            + self.contrastive_weight * contrastive_loss
+            + self.kd_weight * kd_loss
+            + self.rank_weight * rank_loss
+        )
+
+        return {
+            "loss": loss,
+            "task_loss": task_loss.detach(),
+            "contrastive_loss": contrastive_loss.detach(),
+            "kd_loss": kd_loss.detach(),
+            "rank_loss": rank_loss.detach(),
+            "z_s_v": z_S_v,
+            "z_s_t": z_S_t,
+        }
     
     def set_projector(self):
         """
