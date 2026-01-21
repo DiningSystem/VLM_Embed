@@ -218,7 +218,7 @@ def finetune(
         epoch_step = 0
         epoch_loss, epoch_contrastive_loss, epoch_kd_loss = 0, 0, 0
         losses, contrastive_losses, kd_losses = [], [], []
-        kd_rkd_losses, ot_losses, kd_dtw_losses = [], [], []
+        rank_losses, ot_losses, kd_dtw_losses = [], [], []
         model_engine.train()
         
         if is_distributed and isinstance(train_dataloader.sampler, DistributedSampler):
@@ -264,7 +264,7 @@ def finetune(
                 losses.append(loss.detach().item() * training_args.gradient_accumulation_steps)
                 kd_losses.append(loss_kl.detach().item())
                 contrastive_losses.append(contrastive_loss.detach().item())
-                kd_rkd_losses.append(loss_rank.detach().item())  # reuse slot for rank loss
+                rank_losses.append(loss_rank.detach().item())  # reuse slot for rank loss
 
                 model_engine.step()
 
@@ -281,7 +281,7 @@ def finetune(
 
                 batch_loss = sum(losses) / len(losses)
                 batch_kl_loss = sum(kd_losses) / len(kd_losses)
-                batch_rank_loss = sum(kd_rkd_losses) / len(kd_rkd_losses)
+                batch_rank_loss = sum(rank_losses) / len(rank_losses)
                 batch_contrastive_loss = sum(contrastive_losses) / len(contrastive_losses)
 
                 epoch_loss += sum(losses)
