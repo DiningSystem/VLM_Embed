@@ -26,5 +26,7 @@ einops
 deepspeed==0.17.6
 numba
 tslearn
+hdbscan
+spacy
 gpustat
 matplotlib
