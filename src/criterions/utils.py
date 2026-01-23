@@ -27,6 +27,23 @@ def get_hidden_text_vision(hidden_state, num_text_token, num_vision_token, atten
    
     return text_hidden_state, vision_hidden_state
 
+def get_hidden_text(hidden_state, num_text_token, attention_mask):
+    '''
+    Get hidden states for text tokens
+    Args:
+        hidden_state: tensor, the output hidden states from the model
+        num_text_token: int, number of text tokens
+        attention_mask: tensor, the attention mask indicating valid tokens # [Sequence length]
+        (note: only )
+    '''
+    left_padding = attention_mask[0] == 0 and attention_mask[-1] == 1
+    if left_padding:
+        text_hidden_state = hidden_state[-num_text_token:, :]
+    else:
+        text_hidden_state = hidden_state[: num_text_token, :]
+   
+    return text_hidden_state
+
 def get_grid_size(model: MMEBModel, inputs):
     if model.model_backbone == LLAVA_QWEN2:
         vision_tower = model.encoder.get_vision_tower()

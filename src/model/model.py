@@ -1,3 +1,4 @@
+from copy import deepcopy
 from typing import Dict, Optional
 import torch
 import torch.distributed as dist
@@ -6,6 +7,7 @@ from transformers import PreTrainedModel, AutoModelForCausalLM, AutoConfig, Auto
 from peft import LoraConfig, get_peft_model, PeftModel
 import os
 from src.arguments import ModelArguments, TrainingArguments
+from src.model.modules import ModalityGatedPooling
 from src.model.processor import LLAVA_NEXT, QWEN2_VL, PHI3V, get_backbone_name, print_master, QWEN2_5_VL, \
     backbone2model, QWEN2_VL_TOKENSELECTION, QWEN2_5_VL_TOKENSELECTION, LLAVA_ONEVISION, LLAVA_QWEN2
 
@@ -294,6 +296,37 @@ class MMEBModel(nn.Module):
                 torch_dtype=torch.bfloat16,
                 trust_remote_code=True)
 
+        if model_args.modality_gated_pooling:
+            hidden_size = base_model.config.hidden_size
+            pool_v = ModalityGatedPooling(hidden_size)
+            pool_t = ModalityGatedPooling(hidden_size)
+            setattr(base_model, 'pool_v', pool_v)
+            setattr(base_model, 'pool_t', pool_t)
+            print_master("Added Modality Gated Pooling to the base model")
+
+            modality_gated_pooling_path = os.path.join(
+                    model_args.model_name, "modality_gated_pooling.pth"
+                )
+
+            if os.path.exists(modality_gated_pooling_path):
+                state_dict = torch.load(modality_gated_pooling_path)
+                pool_v.load_state_dict(state_dict['pool_v'])
+                pool_t.load_state_dict(state_dict['pool_t'])
+                print_master("Loaded modality gated pooling weights")
+            else:
+                try: 
+                    from huggingface_hub import hf_hub_download
+                    projector_path = hf_hub_download(
+                        repo_id=model_name_or_path,
+                        filename="modality_gated_pooling.pth",
+                    )
+                    state_dict = torch.load(projector_path)
+                    pool_v.load_state_dict(state_dict['pool_v'])
+                    pool_t.load_state_dict(state_dict['pool_t'])
+                    print_master("Loaded modality gated pooling weights from the hub")
+                except:
+                    print_master("No modality gated pooling weights found in the hub.")
+                    pass
 
         if model_args.load_pretrained_lora:
             model_name_or_path = model_args.checkpoint_path if model_args.checkpoint_path else model_args.model_name
@@ -319,6 +352,14 @@ class MMEBModel(nn.Module):
                     )
                 print("Successfully loading the projector's weight")
 
+            if model_args.modality_gated_pooling:
+                for p in lora_model.base_model.pool_v.parameters():
+                    p.requires_grad = True
+                for p in lora_model.base_model.pool_t.parameters():
+                    p.requires_grad = True
+
+                print_master("Enabled training for modality gated pooling")
+
             model = cls(
                 encoder=lora_model,
                 pooling=model_args.pooling,
@@ -327,6 +368,7 @@ class MMEBModel(nn.Module):
             )
 
             return model
+        
         elif model_args.lora:
             print_master(f'Initializing LoRA adapter from {base_model}')
             if model_args.model_backbone in ["llava_onevision", "llava_next"]:
@@ -360,7 +402,6 @@ class MMEBModel(nn.Module):
                 )
                 print(f"Applying LoRA to vision_tower/layers: {model_args.lora_target_modules.split(',')}")
             else:
-                    
                 lora_config = LoraConfig(
                     r=model_args.lora_r,
                     lora_alpha=model_args.lora_alpha,
@@ -370,7 +411,15 @@ class MMEBModel(nn.Module):
                     use_dora=True,
                     inference_mode=False
                 )
+                
             lora_model = get_peft_model(base_model, lora_config)
+
+            if model_args.modality_gated_pooling:
+                for p in lora_model.base_model.pool_v.parameters():
+                    p.requires_grad = True
+                for p in lora_model.base_model.pool_t.parameters():
+                    p.requires_grad = True
+                print_master("Enabled training for modality gated pooling")
 
             model = cls(
                 encoder=lora_model,
@@ -472,6 +521,39 @@ class MMEBModel(nn.Module):
                 trust_remote_code=True)
             print(f"Loaded base model from HF: {model_name_or_path}")
 
+        # load modality gated pooling weights if exists
+        if model_args.modality_gated_pooling:
+            hidden_size = base_model.config.hidden_size
+            pool_v = ModalityGatedPooling(hidden_size)
+            pool_t = ModalityGatedPooling(hidden_size)
+            setattr(base_model, 'pool_v', pool_v)
+            setattr(base_model, 'pool_t', pool_t)
+            print_master("Added Modality Gated Pooling to the base model")
+
+            modality_gated_pooling_path = os.path.join(
+                    model_name_or_path, "modality_gated_pooling.pth"
+                )
+
+            if os.path.exists(modality_gated_pooling_path):
+                state_dict = torch.load(modality_gated_pooling_path)
+                pool_v.load_state_dict(state_dict['pool_v'])
+                pool_t.load_state_dict(state_dict['pool_t'])
+                print_master("Loaded modality gated pooling weights")
+            else:
+                try: 
+                    from huggingface_hub import hf_hub_download
+                    projector_path = hf_hub_download(
+                        repo_id=model_name_or_path,
+                        filename="modality_gated_pooling.pth",
+                    )
+                    state_dict = torch.load(projector_path)
+                    pool_v.load_state_dict(state_dict['pool_v'])
+                    pool_t.load_state_dict(state_dict['pool_t'])
+                    print_master("Loaded modality gated pooling weights from the hub")
+                except:
+                    print_master("No modality gated pooling weights found in the hub.")
+                    pass
+        
         # Building the model on top of the base
         if model_args.lora:
             print_master(f'Loading LoRA from {model_name_or_path}')
@@ -511,7 +593,16 @@ class MMEBModel(nn.Module):
                     print("No projector weight found in the hub.")
                     pass
                 print("Successfully loading the projector's weight")
-                
+            
+            if model_args.modality_gated_pooling and is_trainable:
+                for p in lora_model.base_model.pool_v.parameters():
+                    p.requires_grad = True
+                for p in lora_model.base_model.pool_t.parameters():
+                    p.requires_grad = True
+
+                print_master("Enabled training for modality gated pooling")
+
+            
             if not is_trainable:
                 lora_model = lora_model.merge_and_unload()
 

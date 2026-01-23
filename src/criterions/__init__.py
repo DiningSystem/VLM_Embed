@@ -13,6 +13,9 @@ from .span_propose_attn import SpanProposeCriterionWeighted
 from .span_propose_attn_only_phrase import SpanProposeCriterionWeightedOnlyPhrase
 from .penultimate_mse_loss import PenultimateMSELoss
 from .vision_encoder_kd_loss import VisionEncoderLoss
+from .kl_cosine_distill import kl_cosine_distill
+from .compute_effective_rank import compute_effective_rank
+from .contrastive_pooling_loss import ContrastivePoolingLoss
 
 criterion_list = {
     "contrastive": ContrastiveLoss,
@@ -26,10 +29,14 @@ criterion_list = {
     "span_propose": SpanProposeCriterion,
     "span_propose_attn": SpanProposeCriterionWeighted,
     "span_propose_attn_only_phrase": SpanProposeCriterionWeightedOnlyPhrase,
+
     "vision_rkd": VisionRKDLoss,
     "penultimate_mse": PenultimateMSELoss,
     "contrastive_kd": ContrastiveKDLoss,
     "vision_encoder_kd": VisionEncoderLoss,
+    "kl_cosine_distill_loss": kl_cosine_distill,
+    "effective_rank_loss": compute_effective_rank,
+    "contrastive_pooling_loss": ContrastivePoolingLoss,
 }
 
 def build_criterion(args):

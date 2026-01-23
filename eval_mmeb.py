@@ -122,6 +122,9 @@ def main():
     print_rank(f'model_backbone: {model_args.model_backbone}')
     processor = load_processor(model_args, data_args)
     model = MMEBModel.load(model_args, is_trainable=False)
+    # model = MMEBModel.build(model_args)
+    # if model_args.load_pretrained_lora:
+    #     model.encoder.merge_and_unload()
     model.eval()
     model = model.to(training_args.device, dtype=torch.bfloat16)
 

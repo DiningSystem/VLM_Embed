@@ -1,6 +1,6 @@
 SUBSETS=(
-  "ImageNet-1K" "N24News" "HatefulMemes" "VOC2007" "SUN397"
-    # "ImageNet-1K"
+  # "ImageNet-1K" "N24News" "HatefulMemes" "VOC2007" "SUN397"
+    "ImageNet-1K"
 #   "OK-VQA" "A-OKVQA" "DocVQA" "InfographicsVQA" "ChartQA"
 )
 
@@ -20,4 +20,5 @@ python eval_mmeb.py \
     --per_device_eval_batch_size 1 \
     --image_dir eval_images/ \
     --tgt_prefix_mod \
+    --load_pretrained_lora True \
     --report_to none

@@ -35,6 +35,7 @@ from peft import LoraConfig, get_peft_model, PeftModel
 from transformers import ProcessorMixin
 from qwen_vl_utils import smart_resize
 from PIL import Image
+from transformers import AutoTokenizer
 
 POS_MOD_CLASS_LABEL = "Represent the class label: "
 POS_MOD_IMAGE_CAPTION = "Represent the image caption: "
@@ -115,6 +116,7 @@ class Distiller(nn.Module):
                 pooling=self.model_args.teacher_pooling,
                 normalize=self.model_args.teacher_normalize,
                 model_backbone=self.model_args.teacher_backbone,
+                modality_gated_pooling=self.model_args.teacher_modality_gated_pooling
             )
         else:
             print_rank("Not implemented student model args creation.")
@@ -229,6 +231,16 @@ class Distiller(nn.Module):
                 "lr": lr
             })
         print("Projector parameters added to optimizer.")
+        if self.model_args.modality_gated_pooling:
+            optimizer.add_param_group({
+                "params": self.student.encoder.pool_v.parameters(),
+                "lr": self.training_args.learning_rate
+            })
+            optimizer.add_param_group({
+                "params": self.student.encoder.pool_t.parameters(),
+                "lr": self.training_args.learning_rate
+            })
+            print("Modality gated pooling parameters added to optimizer.")
         return optimizer
     
 class DistillationCollator:
@@ -285,18 +297,10 @@ class DistillationCollator:
         process_student_fn = process_vlm_inputs_fns[self.model_args.model_backbone]
         process_teacher_fn = process_vlm_inputs_fns[self.model_args.teacher_backbone]
         
-        processed_student_qry_inputs = process_student_fn(student_qry_inputs, processor=self.student_processor, 
-                                                          max_length=self.data_args.max_len, 
-                                                          square_padding=True)
-        processed_student_pos_inputs = process_student_fn(student_pos_inputs, processor=self.student_processor, 
-                                                          max_length=self.data_args.max_len,
-                                                          square_padding=True)
-        processed_teacher_qry_inputs = process_teacher_fn(teacher_qry_inputs, processor=self.teacher_processor, 
-                                                          max_length=self.data_args.max_len,
-                                                          square_padding=True)
-        processed_teacher_pos_inputs = process_teacher_fn(teacher_pos_inputs, processor=self.teacher_processor, 
-                                                          max_length=self.data_args.max_len,
-                                                          square_padding=True)
+        processed_student_qry_inputs = process_student_fn(student_qry_inputs, processor=self.student_processor, max_length=self.data_args.max_len)
+        processed_student_pos_inputs = process_student_fn(student_pos_inputs, processor=self.student_processor, max_length=self.data_args.max_len)
+        processed_teacher_qry_inputs = process_teacher_fn(teacher_qry_inputs, processor=self.teacher_processor, max_length=self.data_args.max_len)
+        processed_teacher_pos_inputs = process_teacher_fn(teacher_pos_inputs, processor=self.teacher_processor, max_length=self.data_args.max_len)
         
         return {
             'student_inputs':{

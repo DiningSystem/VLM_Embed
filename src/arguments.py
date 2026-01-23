@@ -46,7 +46,9 @@ class ModelArguments:
     load_pretrained_lora: bool = field(default=False, metadata={"help": "load pretrained lora model for student"})
     #! new args for span loss
     
-    
+    modality_gated_pooling: bool = field(default=False, metadata={"help": "whether to use modality gated pooling"})
+    teacher_modality_gated_pooling: bool = field(default=False, metadata={"help": "whether to use modality gated pooling for teacher"})
+    frozen_backbone: bool = field(default=False, metadata={"help": "whether to freeze the backbone model"})
 
 @dataclass
 class DataArguments:

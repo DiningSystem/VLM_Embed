@@ -139,7 +139,7 @@ class Trainer:
                             disable=not dist.get_rank() == 0)
         for batch_idx, batch in enumerate(self.train_data):
             batch = to_device(batch, self.device)
-            loss_dict = self.distiller(self.criterion, batch)
+            loss_dict = self.model_wrapper(self.criterion, batch)
             loss = loss_dict['loss'] / self.training_args.gradient_accumulation_steps
             kd_loss = loss_dict.get('kd_loss', torch.tensor(0.0))
             contrastive_loss = loss_dict.get('contrastive_loss', torch.tensor(0.0))
