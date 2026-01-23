@@ -12,8 +12,8 @@ TRAIN_SCRIPT="train_pooling_teacher.py"
 # )
 
 SUBSETS=(
-  # "ImageNet_1K" "N24News" "HatefulMemes" "VOC2007" "SUN397"
-  "VOC2007"
+  "ImageNet_1K" "N24News" "HatefulMemes" "VOC2007" "SUN397"
+  # "VOC2007"
 #   "OK-VQA" "A-OKVQA" "DocVQA" "InfographicsVQA" "ChartQA"
 )
 
