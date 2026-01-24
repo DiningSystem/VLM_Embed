@@ -32,10 +32,10 @@ torchrun --nproc_per_node=$NUM_GPUS_PER_NODE \
     --image_dir "vlm2vec_train/MMEB-train" \
     --percent_data 1.0 \
     --output_dir "training/B3_Qwen2_2B_pooling" \
-    --per_device_train_batch_size 8 \
-    --gradient_accumulation_steps 1 \
+    --per_device_train_batch_size 64 \
+    --gradient_accumulation_steps 4 \
     --learning_rate 1e-4 \
-    --num_train_epochs 1 \
+    --num_train_epochs 100 \
     --bf16 \
     --save_total_limit 5 \
     --logging_steps 1 \
@@ -51,4 +51,4 @@ torchrun --nproc_per_node=$NUM_GPUS_PER_NODE \
     --kd_loss_type "contrastive_pooling_loss" \
     --image_resolution "low" \
     --projector_lr 5e-5 \
-    --report_to none 
+    --wandb "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" 
