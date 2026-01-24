@@ -8,7 +8,6 @@ import math
 from datasets import load_dataset, concatenate_datasets
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 import PIL
 import argparse
 from transformers import (
@@ -35,9 +34,6 @@ from src.arguments import ModelArguments, DataArguments, TrainingArguments
 from peft import LoraConfig, get_peft_model, PeftModel 
 from transformers import ProcessorMixin
 from qwen_vl_utils import smart_resize
-from src.model.modality_gated_pooling import ModalityGatedPooling
-from src.criterions.compute_effective_rank import compute_effective_rank_loss
-from src.criterions.kl_cosine_distill import kl_cosine_distill
 from PIL import Image
 from transformers import AutoTokenizer
 
@@ -65,13 +61,16 @@ def process_image(image, resolution, max_dim=1344):
     elif resolution == "mid":
         target_max = 672
     elif resolution == "low":
-        target_max = 128
+        target_max = 448
     else:
         target_max = max_dim
 
-    # resize if larger than target_max
+    # Tính tỉ lệ scale sao cho cạnh lớn nhất = target_max
     if max_side > target_max:
-        image = image.resize((target_max, target_max))
+        scale = target_max / max_side
+        new_width = int(width * scale)
+        new_height = int(height * scale)
+        image = image.resize((new_width, new_height))
 
     return image
 
@@ -103,38 +102,6 @@ class Distiller(nn.Module):
         # if self.model_args.projector_config_path is not None:
         self.set_projector()
         print("Projectors set.")
-        self.student_pool_v_qry = ModalityGatedPooling(model_args.student_hidden_dim)
-        self.student_pool_t_qry = ModalityGatedPooling(model_args.student_hidden_dim)
-        self.student_pool_v_pos = ModalityGatedPooling(model_args.student_hidden_dim)
-        self.student_pool_t_pos = ModalityGatedPooling(model_args.student_hidden_dim)
-
-        self.teacher_pool_v_qry = ModalityGatedPooling(model_args.teacher_hidden_dim)
-        self.teacher_pool_t_qry = ModalityGatedPooling(model_args.teacher_hidden_dim)
-        self.teacher_pool_v_pos = ModalityGatedPooling(model_args.teacher_hidden_dim)
-        self.teacher_pool_t_pos = ModalityGatedPooling(model_args.teacher_hidden_dim)
-
-        # load teacher pooling (Stage-1)
-        if model_args.teacher_pool_ckpt is not None:
-            ckpt = torch.load(model_args.teacher_pool_ckpt, map_location="gpu")
-            self.teacher_pool_v_qry.load_state_dict(ckpt["vision_pool_qry"])
-            self.teacher_pool_t_qry.load_state_dict(ckpt["text_pool_qry"])
-            self.teacher_pool_v_pos.load_state_dict(ckpt["vision_pool_pos"])
-            self.teacher_pool_t_pos.load_state_dict(ckpt["text_pool_pos"])
-
-        # freeze teacher
-        for p in self.teacher.parameters():
-            p.requires_grad = False
-        for p in self.teacher_pool_v.parameters():
-            p.requires_grad = False
-        for p in self.teacher_pool_t.parameters():
-            p.requires_grad = False
-
-        self.tau = getattr(training_args, "tau", 0.07)
-
-        self.task_weight = training_args.task_weight
-        self.contrastive_weight = training_args.contrastive_weight
-        self.kd_weight = training_args.kd_weight
-        self.rank_weight = training_args.rank_weight
     
     def _create_model_args(self, model_type='teacher'):
         if model_type == 'teacher': 
@@ -149,6 +116,7 @@ class Distiller(nn.Module):
                 pooling=self.model_args.teacher_pooling,
                 normalize=self.model_args.teacher_normalize,
                 model_backbone=self.model_args.teacher_backbone,
+                modality_gated_pooling=self.model_args.teacher_modality_gated_pooling
             )
         else:
             print_rank("Not implemented student model args creation.")
@@ -173,202 +141,28 @@ class Distiller(nn.Module):
         return teacher
     
     def get_student_processor(self):
+        if hasattr(self, 'student_processor'):
+            return self.student_processor
         processor = load_processor(self.model_args, None)
+        setattr(self, 'student_processor', processor)
         print("Student processor loaded.")
         return processor
 
     def get_teacher_processor(self):
+        if hasattr(self, 'teacher_processor'):
+            return self.teacher_processor
         model_args = self._create_model_args('teacher')
         processor = load_processor(model_args, None)
+        setattr(self, 'teacher_processor', processor)
         print("Teacher processor loaded.")
         return processor
     
     def forward(self, criterion, batch):
-        #if self.training_args.kd_loss_type in ['span_propose_attn', 'span_propose', 'span_propose_attn_only_phrase' ]:
-         #   loss = criterion(self, batch, tokenizer = self.tokenizer)
-        #else: 
-         #   loss = criterion(self, batch)
-        #return loss
-        student_model = self._load_student
-        teacher_model = self._load_teacher
-        
-        student_qry_input = batch['student_inputs']['qry']
-        student_pos_input = batch['student_inputs']['pos']
-        
-        teacher_qry_input = batch['teacher_inputs']['qry']
-        teacher_pos_input = batch['teacher_inputs']['pos']
-        num_text_qry_tokens = ((teacher_qry_input['input_ids'] < 151643) | (teacher_qry_input['input_ids'] > 151656)).sum(dim=1)
-        num_text_pos_tokens = ((teacher_pos_input['input_ids'] < 151643) | (teacher_pos_input['input_ids'] > 151656)).sum(dim=1)
-        
-        batch_size = student_qry_input['input_ids'].size(0)
-        with torch.no_grad():
-            teacher_model.eval()
-            teacher_qry_output = teacher_model.encode_input(teacher_qry_input)
-            teacher_pos_output = teacher_model.encode_input(teacher_pos_input)
-            teacher_qry_reps, teacher_qry_image_features, teacher_qry_attention, teacher_qry_hidden_states = teacher_qry_output
-            teacher_pos_reps, teacher_pos_image_features, teacher_pos_attention, teacher_pos_hidden_states = teacher_pos_output
-        
-        student_qry_output = student_model.encode_input(student_qry_input)
-        student_pos_output = student_model.encode_input(student_pos_input)
-        student_qry_reps, student_qry_image_features, student_qry_attention, student_qry_hidden_states = student_qry_output
-        student_pos_reps, student_pos_image_features, student_pos_attention, student_pos_hidden_states = student_pos_output
-        cur_idx_qry_img = 0
-        cur_idx_pos_img = 0
-        H_T_v_qry = []
-        H_T_t_qry = []
-        H_S_v_qry = []
-        H_S_t_qry = []
-        H_T_v_pos = []
-        H_T_t_pos = []
-        H_S_v_pos = []
-        H_S_t_pos = []
-        for i in range(batch_size):
-            # print(f"Sample {i}: num_text_qry_tokens {num_text_qry_tokens[i]}, num_text_pos_tokens {num_text_pos_tokens[i]}")
-            # print(f"Sample {i} input_ids ids of teacher {teacher_qry_input['input_ids'][i]}, pos {teacher_pos_input['input_ids'][i]}")
-            # print(f"Sample {i} input_ids ids of student {student_qry_input['input_ids'][i]}, pos {student_pos_input['input_ids'][i]}")
-            if student_qry_image_features is not None and teacher_qry_image_features is not None:
-                if cur_idx_qry_img < len(student_qry_image_features) and cur_idx_qry_img < len(teacher_qry_image_features):
-                    if student_qry_image_features[cur_idx_qry_img] is not None and teacher_qry_image_features[cur_idx_qry_img] is not None:
-                        num_tokens_vision_qry_stu = student_qry_image_features[cur_idx_qry_img].size(0)
-                        num_tokens_vision_qry_tea = teacher_qry_image_features[cur_idx_qry_img].size(0)
-                        # print(f"Sample qry {i}: num_tokens_vision_qry_stu {num_tokens_vision_qry_stu}, num_tokens_vision_qry_tea {num_tokens_vision_qry_tea}")
-                        num_text_token_qry_tea = num_text_qry_tokens[i]
-                        student_qry_vision_hidden_state = student_qry_hidden_states[-1][i][:num_tokens_vision_qry_stu, :]
-                        teacher_qry_vision_hidden_state = teacher_qry_hidden_states[-1][i][-(num_tokens_vision_qry_tea + num_text_token_qry_tea):-(num_text_token_qry_tea), :]
-                        
-                        student_qry_text_hidden_state = student_qry_hidden_states[-1][i][num_tokens_vision_qry_stu:(num_tokens_vision_qry_stu + num_text_qry_tokens[i]), :]
-                        teacher_qry_text_hidden_state = teacher_qry_hidden_states[-1][i][-num_text_token_qry_tea:, :]
-
-                        H_S_v_qry.append(student_qry_vision_hidden_state)
-                        H_T_v_qry.append(teacher_qry_vision_hidden_state)
-                        H_S_t_qry.append(student_qry_text_hidden_state)
-                        H_T_t_qry.append(teacher_qry_text_hidden_state)
-            if student_pos_image_features is not None and teacher_pos_image_features is not None:
-                if cur_idx_pos_img < len(student_pos_image_features) and cur_idx_pos_img < len(teacher_pos_image_features):
-                    if student_pos_image_features[cur_idx_pos_img] is not None and teacher_pos_image_features[cur_idx_pos_img] is not None:
-                        num_tokens_vision_pos_stu = student_pos_image_features[cur_idx_pos_img].size(0)
-                        num_tokens_vision_pos_tea = teacher_pos_image_features[cur_idx_pos_img].size(0)
-                        # print(f"Sample pos {i}: num_tokens_vision_pos_stu {num_tokens_vision_pos_stu}, num_tokens_vision_pos_tea {num_tokens_vision_pos_tea}")
-                        num_text_token_pos_tea = num_text_pos_tokens[i]
-                        student_pos_vision_hidden_state = student_pos_hidden_states[-1][i][:num_tokens_vision_pos_stu, :]
-                        teacher_pos_vision_hidden_state = teacher_pos_hidden_states[-1][i][-(num_tokens_vision_pos_tea + num_text_token_pos_tea):-(num_text_token_pos_tea), :]
-                        
-                        student_pos_text_hidden_state = student_pos_hidden_states[-1][i][num_tokens_vision_pos_stu:(num_tokens_vision_pos_stu + num_text_pos_tokens[i]), :]
-                        teacher_pos_text_hidden_state = teacher_pos_hidden_states[-1][i][-num_text_token_pos_tea:, :]
-
-                        H_S_v_pos.append(student_pos_vision_hidden_state)
-                        H_T_v_pos.append(teacher_pos_vision_hidden_state)
-                        H_S_t_pos.append(student_pos_text_hidden_state)
-                        H_T_t_pos.append(teacher_pos_text_hidden_state) 
-
-            H_T_v_qry = torch.cat(H_T_v_qry, dim=0)
-            H_T_t_qry = torch.cat(H_T_t_qry, dim=0)
-            H_S_v_qry = torch.cat(H_S_v_qry, dim=0)
-            H_S_t_qry = torch.cat(H_S_t_qry, dim=0)
-            H_T_v_pos = torch.cat(H_T_v_pos, dim=0)
-            H_T_t_pos = torch.cat(H_T_t_pos, dim=0)
-            H_S_v_pos = torch.cat(H_S_v_pos, dim=0)
-            H_S_t_pos = torch.cat(H_S_t_pos, dim=0)
-        with torch.no_grad():
-            
-            z_T_v_qry, g_T_v_qry = self.teacher_pool_v_qry(H_T_v_qry)
-            z_T_t_qry, g_T_t_qry = self.teacher_pool_t_qry(H_T_t_qry)
-
-            H_T_v_g_qry = H_T_v_qry * g_T_v_qry
-            H_T_t_g_qry = H_T_t_qry * g_T_t_qry
-
-            z_T_v_pos, g_T_v_pos = self.teacher_pool_v_pos(H_T_v_pos)
-            z_T_t_pos, g_T_t_pos = self.teacher_pool_t_pos(H_T_t_pos)
-
-            H_T_v_g_pos = H_T_v_pos * g_T_v_pos
-            H_T_t_g_pos = H_T_t_pos * g_T_t_pos
-
-        # -------- Student --------
-
-        z_S_v_qry, g_S_v_qry = self.student_pool_v_qry(H_S_v_qry)
-        z_S_t_qry, g_S_t_qry = self.student_pool_t_qry(H_S_t_qry)
-
-        H_S_v_g_qry = H_S_v_qry * g_S_v_qry
-        H_S_t_g_qry = H_S_t_qry * g_S_t_qry
-
-        z_S_v_pos, g_S_v_pos = self.student_pool_v_pos(H_S_v_pos)
-        z_S_t_pos, g_S_t_pos = self.student_pool_t_pos(H_S_t_pos)
-
-        H_S_v_g_pos = H_S_v_pos * g_S_v_pos
-        H_S_t_g_pos = H_S_t_pos * g_S_t_pos
-
-        # -------- Losses --------
-        task_loss = 0
-        #task_loss = criterion(s_out["logits"], batch["labels"])
-
-        contrastive_loss_qry = F.cosine_embedding_loss(
-            z_S_v_qry,
-            z_S_t_qry,
-            torch.ones(z_S_v_qry.size(0), device=z_S_v_qry.device),
-        )
-
-        kd_loss_qry = kl_cosine_distill(
-            z_S_v_qry, z_S_t_qry,
-            z_T_v_qry, z_T_t_qry,
-            tau=self.tau,
-        )
-
-        rank_loss_qry = compute_effective_rank_loss(
-            H_S_v_g_qry, H_S_t_g_qry,
-            H_T_v_g_qry, H_T_t_g_qry,
-        )
-
-        loss_qry = (
-            self.task_weight * task_loss
-            + self.contrastive_weight * contrastive_loss_qry
-            + self.kd_weight * kd_loss_qry
-            + self.rank_weight * rank_loss_qry
-        )
-
-        # -------- Losses --------
-        task_loss = 0
-        #task_loss = criterion(s_out["logits"], batch["labels"])
-
-        contrastive_loss_pos = F.cosine_embedding_loss(
-            z_S_v_pos,
-            z_S_t_pos,
-            torch.ones(z_S_v_pos.size(0), device=z_S_v_pos.device),
-        )
-
-        kd_loss_pos = kl_cosine_distill(
-            z_S_v_pos, z_S_t_pos,
-            z_T_v_pos, z_T_t_pos,
-            tau=self.tau,
-        )
-
-        rank_loss_pos = compute_effective_rank_loss(
-            H_S_v_g_pos, H_S_t_g_pos,
-            H_T_v_g_pos, H_T_t_g_pos,
-        )
-
-        loss_pos = (
-            self.task_weight * task_loss
-            + self.contrastive_weight * contrastive_loss_pos
-            + self.kd_weight * kd_loss_pos
-            + self.rank_weight * rank_loss_pos
-        )
-
-        loss = 0.5 * (loss_qry + loss_pos)
-        contrastive_loss = 0.5 * (contrastive_loss_qry + contrastive_loss_pos)
-        kd_loss = 0.5 * (kd_loss_qry + kd_loss_pos)
-        rank_loss = 0.5 * (rank_loss_qry + rank_loss_pos)
-
-        return {
-            "loss": loss,
-            "task_loss": task_loss.detach(),
-            "contrastive_loss": contrastive_loss.detach(),
-            "kd_loss": kd_loss.detach(),
-            "rank_loss": rank_loss.detach(),
-            "z_s_v_qry": z_S_v_qry,
-            "z_s_t_qry": z_S_t_qry,
-            "z_s_v_pos": z_S_v_pos,
-            "z_s_t_pos": z_S_t_pos,
-        }
+        if self.training_args.kd_loss_type in ['span_propose_attn', 'span_propose', 'span_propose_attn_only_phrase' ]:
+            loss = criterion(self, batch, tokenizer = self.tokenizer)
+        else: 
+            loss = criterion(self, batch)
+        return loss
     
     def set_projector(self):
         """
@@ -437,7 +231,18 @@ class Distiller(nn.Module):
                 "lr": lr
             })
         print("Projector parameters added to optimizer.")
+        if self.model_args.modality_gated_pooling:
+            optimizer.add_param_group({
+                "params": self.student.encoder.pool_v.parameters(),
+                "lr": self.training_args.learning_rate
+            })
+            optimizer.add_param_group({
+                "params": self.student.encoder.pool_t.parameters(),
+                "lr": self.training_args.learning_rate
+            })
+            print("Modality gated pooling parameters added to optimizer.")
         return optimizer
+    
 class DistillationCollator:
     def __init__(self, student_processor: ProcessorMixin, teacher_processor: ProcessorMixin,
                  model_args: ModelArguments, data_args: DataArguments, training_args: TrainingArguments,
@@ -539,6 +344,7 @@ class DistillationDataset(Dataset):
     
     def __len__(self):
         return len(self.train_data)
+    
     def _get_image(self, img_path, backbone):
         if not img_path:
             return None

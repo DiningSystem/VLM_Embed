@@ -1,5 +1,5 @@
 import json
-from src.distiller import Distiller, DistillationCollator, DistillationDataset
+from src.single_wrapper import SingleWrapper, SingleCollator, SingleDataset
 from src.arguments import DataArguments, MTEBArguments, TrainingArguments, ModelArguments
 from src import model
 from src.utils import print_rank, print_master
@@ -48,7 +48,7 @@ def get_optimizer(model, training_args):
     return optimizer
 
 def prepare_dataset(data_args, model_args):
-    dataset = DistillationDataset(data_args, model_args)
+    dataset = SingleDataset(data_args, model_args)
     return dataset
 
 def is_main_process():
@@ -74,12 +74,12 @@ def ddp_setup():
     init_process_group(backend="nccl")
 
 class Trainer:
-    def __init__(self, distiller, train_data, optimizer, lr_scheduler, criterion, 
+    def __init__(self, model_wrapper, train_data, optimizer, lr_scheduler, criterion, 
                  model_args, training_args, data_args):
         print_rank("Initializing Trainer...")
         self.gpu_id = int(os.environ['LOCAL_RANK'])
         self.device = torch.device(f'cuda:{self.gpu_id}')
-        self.distiller = distiller.to(self.device)
+        self.model_wrapper = model_wrapper.to(self.device)
         self.train_data = train_data
         self.optimizer = optimizer
         self.lr_scheduler = lr_scheduler
@@ -88,7 +88,7 @@ class Trainer:
         self.training_args = training_args
         self.data_args = data_args
         
-        self.distiller = DDP(self.distiller, device_ids=[self.gpu_id])
+        self.model_wrapper = DDP(self.model_wrapper, device_ids=[self.gpu_id])
 
         # <--- [THÊM] Logic kiểm tra report_to="wandb"
         self.use_wandb = False
@@ -127,52 +127,22 @@ class Trainer:
         
     def run_epoch(self, epoch):
         self.train_data.sampler.set_epoch(epoch)
-        losses, contrastive_losses, kd_losses = [], [], []
-        kd_rkd_losses, ot_losses, kd_dtw_losses = [], [], []
-        kd_mse_losses, kd_penultimate_losses = [], []
-        span_losses, cross_modal_losses = [], []
+        losses = []
         
         # Tính tổng số bước (steps) trong epoch để log step
         steps_per_epoch = len(self.train_data.dataset) // self.training_args.per_device_train_batch_size // self.training_args.gradient_accumulation_steps // dist.get_world_size()
-        
+
         progress_bar = tqdm(total=steps_per_epoch, 
                             desc=f"Epoch {epoch}",
                             disable=not dist.get_rank() == 0)
         for batch_idx, batch in enumerate(self.train_data):
             batch = to_device(batch, self.device)
-            loss_dict = self.distiller(self.criterion, batch)
+            loss_dict = self.model_wrapper(self.criterion, batch)
             loss = loss_dict['loss'] / self.training_args.gradient_accumulation_steps
-            kd_loss = loss_dict.get('kd_loss', torch.tensor(0.0))
-            span_loss = loss_dict.get('span_loss', torch.tensor(0.0))
-            contrastive_loss = loss_dict.get('contrastive_loss', torch.tensor(0.0))
-            kd_rkd_loss = loss_dict.get('kd_loss_rkd', torch.tensor(0.0))
-            cross_modal_loss = loss_dict.get('cross_modal_loss', torch.tensor(0.0))
-            ot_loss = loss_dict.get('ot_loss', torch.tensor(0.0))
-            kd_dtw_loss = loss_dict.get('kd_loss_dtw', torch.tensor(0.0))
-            kd_mse_loss = loss_dict.get('kd_mse_loss', torch.tensor(0.0))
-            kd_penultimate_loss = loss_dict.get('kd_penultimate_loss', torch.tensor(0.0))
 
             losses.append(loss.detach().item() * self.training_args.gradient_accumulation_steps)
-            contrastive_losses.append(contrastive_loss.detach().item())
-            kd_losses.append(kd_loss.detach().item())
-            span_losses.append(span_loss.detach().item())
-            kd_rkd_losses.append(kd_rkd_loss.detach().item())
-            cross_modal_losses.append(cross_modal_loss.detach().item())
-            ot_losses.append(ot_loss.detach().item())
-            kd_dtw_losses.append(kd_dtw_loss.detach().item())
-            kd_mse_losses.append(kd_mse_loss.detach().item())
-            kd_penultimate_losses.append(kd_penultimate_loss.detach().item())
             
             batch_loss = sum(losses) / len(losses)
-            batch_contrastive_loss = sum(contrastive_losses) / len(contrastive_losses)
-            batch_kd_loss = sum(kd_losses) / len(kd_losses)
-            batch_span_loss = sum(span_losses) / len(span_losses)
-            batch_kd_rkd_loss = sum(kd_rkd_losses) / len(kd_rkd_losses)
-            batch_cross_modal_loss = sum(cross_modal_losses) / len(cross_modal_losses)
-            batch_ot_loss = sum(ot_losses) / len(ot_losses)
-            batch_kd_dtw_loss = sum(kd_dtw_losses) / len(kd_dtw_losses)
-            batch_kd_loss_mse = sum(kd_mse_losses) / len(kd_mse_losses)
-            batch_kd_penultimate_loss = sum(kd_penultimate_losses) / len(kd_penultimate_losses)
             
             loss.backward()
             if (batch_idx + 1) % self.training_args.gradient_accumulation_steps == 0:
@@ -184,14 +154,6 @@ class Trainer:
                     current_lr = self.lr_scheduler.get_last_lr()[0]
                     progress_bar.set_postfix({
                         'loss': f"{batch_loss:.4f}",
-                        'kd_loss': f"{batch_kd_loss:.4f}",
-                        'contrastive_loss': f"{batch_contrastive_loss:.4f}",
-                        'kd_rkd_loss': f"{batch_kd_rkd_loss:.4f}",
-                        'cross_modal_loss': f"{batch_cross_modal_loss:.4f}",
-                        'ot_loss': f"{batch_ot_loss:.4f}",
-                        'kd_dtw_loss': f"{batch_kd_dtw_loss:.4f}",
-                        'kd_loss_mse': f"{batch_kd_loss_mse:.4f}",
-                        'kd_penultimate_loss': f"{batch_kd_penultimate_loss:.4f}",
                         'lr': f"{self.lr_scheduler.get_last_lr()[0]:.6f}",
                     })
                     progress_bar.update(1)
@@ -202,13 +164,6 @@ class Trainer:
                         # Ở đây mình log loss trung bình tích lũy giống như progress bar
                         wandb.log({
                             "train/loss": batch_loss,
-                            "train/kd_loss": batch_kd_loss,
-                            "train/contrastive_loss": batch_contrastive_loss,
-                            "train/kd_rkd_loss": batch_kd_rkd_loss,
-                            "train/ot_loss": batch_ot_loss,
-                            "train/kd_dtw_loss": batch_kd_dtw_loss,
-                            "train/kd_loss_mse": batch_kd_loss_mse,
-                            "train/kd_penultimate_loss": batch_kd_penultimate_loss,
                             "train/learning_rate": current_lr,
                             "train/epoch": epoch + ((batch_idx + 1) / self.training_args.gradient_accumulation_steps) / steps_per_epoch
                         })
@@ -226,7 +181,7 @@ class Trainer:
             if self.training_args: all_config.update(vars(self.training_args))
 
             wandb.init(
-                project="VLM_Embed_distill",
+                project="VLM_Embed_Teacher_Pooling",
                 config=all_config,
                 reinit=True
             )
@@ -235,21 +190,19 @@ class Trainer:
             self.run_epoch(epoch)
             if is_main_process() and self.training_args.save_strategy == "epoch":
                 ckpt_dir = os.path.join(self.training_args.output_dir, f"checkpoint-epoch-{epoch}")
-                projector_dir = os.path.join(ckpt_dir, "mm_projector.pth")
                 os.makedirs(ckpt_dir, exist_ok=True)
-                
-                student = self.distiller.module.student
-                student.encoder.save_pretrained(ckpt_dir)
-                if self.model_args.model_backbone in ["llava_onevision", "llava_two_vision"]:
-                    torch.save(student.encoder.model.multi_modal_projector.state_dict(), projector_dir)
-                else:
-                    if hasattr(student.encoder.model, 'mm_projector'):
-                        torch.save(student.encoder.model.mm_projector.state_dict(), projector_dir)
 
-                student_config = AutoConfig.from_pretrained(self.model_args.model_name) if self.model_args.model_name else None
+                model = self.model_wrapper.module.model
+                model.encoder.save_pretrained(ckpt_dir)
+
+                if hasattr(model.encoder.model.model, 'mm_projector'):
+                    projector_dir = os.path.join(ckpt_dir, "mm_projector.pth")
+                    torch.save(model.encoder.model.model.mm_projector.state_dict(), projector_dir)
+
+                model_config = AutoConfig.from_pretrained(self.model_args.model_name) if self.model_args.model_name else None
                 tokenizer = AutoTokenizer.from_pretrained(self.model_args.model_name) if self.model_args.model_name else None
-                if student_config:
-                    student_config.save_pretrained(ckpt_dir)
+                if model_config:
+                    model_config.save_pretrained(ckpt_dir)
                 if tokenizer:
                     tokenizer.save_pretrained(ckpt_dir)
                 try:
@@ -258,27 +211,32 @@ class Trainer:
                         processor.save_pretrained(ckpt_dir)
                 except Exception as e:
                     print_rank(f"Warning: Could not save processor: {e}")
-                print_rank(f"Saved checkpoint to {ckpt_dir}")
+                
+                pooling_dir = os.path.join(ckpt_dir, 'modality_gated_pooling.pth')
+                pool_v = model.encoder.pool_v
+                pool_t = model.encoder.pool_t
+                torch.save({
+                    'pool_v': pool_v.state_dict(),
+                    'pool_t': pool_t.state_dict(),
+                }, pooling_dir)
+                print_rank(f"Saved modality gated pooling to {pooling_dir}")
 
-                ## for evaluation
-                print(f"Start evaluating student at epoch {epoch}")
-            dist.barrier()
+                print_rank(f"Saved checkpoint to {ckpt_dir}")
 
         if is_main_process():
             final_ckpt_dir = os.path.join(self.training_args.output_dir, f"checkpoint-final")
-            projector_dir =  os.path.join(final_ckpt_dir, "mm_projector.pth")
             os.makedirs(final_ckpt_dir, exist_ok=True)
-            student = self.distiller.module.student
-            student.encoder.save_pretrained(final_ckpt_dir)
-            if self.model_args.model_backbone in ["llava_onevision", "llava_two_vision"]:
-                torch.save(student.encoder.model.multi_modal_projector.state_dict(), projector_dir)
-            else:
-                if hasattr(student.encoder.model, 'mm_projector'):
-                    torch.save(student.encoder.model.model.mm_projector.state_dict(), projector_dir)
-            student_config = AutoConfig.from_pretrained(self.model_args.model_name) if self.model_args.model_name else None
+            model = self.model_wrapper.module.model
+            model.encoder.save_pretrained(final_ckpt_dir)
+
+            if hasattr(model.encoder.model.model, 'mm_projector'):
+                projector_dir =  os.path.join(final_ckpt_dir, "mm_projector.pth")
+                torch.save(model.encoder.model.model.mm_projector.state_dict(), projector_dir)
+                
+            model_config = AutoConfig.from_pretrained(self.model_args.model_name) if self.model_args.model_name else None
             tokenizer = AutoTokenizer.from_pretrained(self.model_args.model_name) if self.model_args.model_name else None
-            if student_config:
-                student_config.save_pretrained(final_ckpt_dir)
+            if model_config:
+                model_config.save_pretrained(final_ckpt_dir)
             if tokenizer:
                 tokenizer.save_pretrained(final_ckpt_dir)
             try:
@@ -289,11 +247,17 @@ class Trainer:
                 print_rank(f"Warning: Could not save processor: {e}")
             print_rank(f"Saved final model to {final_ckpt_dir}")
             
+            pooling_dir = os.path.join(final_ckpt_dir, 'modality_gated_pooling.pth')
+            pool_v = model.encoder.pool_v
+            pool_t = model.encoder.pool_t
+            torch.save({
+                'pool_v': pool_v.state_dict(),
+                'pool_t': pool_t.state_dict(),
+            }, pooling_dir)
+            print_rank(f"Saved modality gated pooling to {pooling_dir}")
+
             if self.use_wandb:
                 wandb.finish()
-
-        dist.barrier()
-                
                 
 def main():
     for arg in sys.argv:
@@ -309,16 +273,31 @@ def main():
     training_args: TrainingArguments
     
     
-    distiller = Distiller(model_args, training_args)
+    model_wrapper = SingleWrapper(model_args, training_args)
     train_dataset = prepare_dataset(data_args, model_args)
     dist_sampler = DistributedSampler(train_dataset, shuffle=True)
-    for n, p in distiller.student.named_parameters():
+
+    model_wrapper.eval()
+
+    if model_args.frozen_backbone:
+        for p in model_wrapper.parameters():
+            p.requires_grad = False
+
+    for p in model_wrapper.model.encoder.pool_v.parameters():
+        p.requires_grad = True
+
+    for p in model_wrapper.model.encoder.pool_t.parameters():
+        p.requires_grad = True
+
+    model_wrapper.model.encoder.pool_v.train()
+    model_wrapper.model.encoder.pool_t.train()
+
+    for n, p in model_wrapper.named_parameters():
         if p.requires_grad:  # thường chỉ là LoRA
             p.data = p.data.to(torch.bfloat16)
     
-    collator = DistillationCollator(
-        student_processor=distiller.get_student_processor(),
-        teacher_processor=distiller.get_teacher_processor(),
+    collator = SingleCollator(
+        processor=model_wrapper.get_processor(),
         model_args=model_args,
         data_args=data_args,
         training_args=training_args,
@@ -331,32 +310,24 @@ def main():
         drop_last=True,
         pin_memory=False,
     )
-    num_trainable_vision = 0
-    for n, p in distiller.student.named_parameters():
-        if "mm_projector" in n or "multi_modal_projector" in n:
-            p.requires_grad = True
-            
-        if "mm_projector" in n or "multi_modal_projector" in n:
-            p.requires_grad = True
-            
-        if "lm_head" in n:
-            p.requires_grad = False
-        if p.requires_grad:
-            p.data = p.data.to(torch.bfloat16)
-            num_trainable_vision += p.numel()
-    print_rank(f"Number of trainable vision parameters: {num_trainable_vision}")
     
+    for n, p in model_wrapper.model.named_parameters():
+        if p.requires_grad:
+            print(f'Trainable param: {n}')
+
     optimizer = AdamW(
-        distiller.student.parameters(),
+        list(model_wrapper.model.encoder.pool_v.parameters()) +
+        list(model_wrapper.model.encoder.pool_t.parameters()),
         lr=training_args.learning_rate,
         weight_decay=training_args.weight_decay,
         betas=(0.9, 0.999),
         eps=1e-8,
     )
+
     print(f"Len of train dataset: {len(train_dataloader.dataset)}")
     total_steps = (len(train_dataloader.dataset) // (training_args.per_device_train_batch_size * dist.get_world_size()) // training_args.gradient_accumulation_steps) * training_args.num_train_epochs
-    if model_args.projector_config_path is not None:
-        optimizer = distiller.add_optimizer_param_group(optimizer)
+    # if model_args.projector_config_path is not None:
+    #     optimizer = distiller.add_optimizer_param_group(optimizer)
 
     print("Number of trainable parameters:", sum(p.numel() for p in optimizer.param_groups[0]['params'] if p.requires_grad))
 
@@ -381,7 +352,7 @@ def main():
             num_warmup_steps=training_args.warmup_ratio * total_steps,
         )
     criterion = build_criterion(training_args)
-    trainer = Trainer(distiller, train_dataloader, optimizer, lr_scheduler, criterion, 
+    trainer = Trainer(model_wrapper, train_dataloader, optimizer, lr_scheduler, criterion, 
                       model_args, training_args, data_args)
     trainer.train()
     
@@ -389,3 +360,5 @@ if __name__ == "__main__":
     ddp_setup()
     main()
     destroy_process_group()
+
+    # Must have param model_args.load_pretrained_lora if train on pretrained LoRA weights

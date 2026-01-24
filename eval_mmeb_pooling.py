@@ -192,8 +192,9 @@ def main():
                 for batch in tqdm(eval_qry_loader, desc=f"Encode query - {subset}"):
                     batch = batch_to_device(batch, training_args.device)
                     with torch.autocast(enabled=True, dtype=torch.bfloat16, device_type="cuda"):
-                        output = model(qry=batch)
-                    encoded_tensor.append(output["qry_reps"].cpu().detach().float())
+                        output = model.encode_input_pooling(input=batch, 
+                                                            tokenizer=processor.tokenizer)
+                    encoded_tensor.append(output.cpu().detach().float())
             encoded_tensor = np.concatenate(encoded_tensor)
             with open(encode_qry_path, 'wb') as f:
                 pickle.dump((encoded_tensor, eval_qry_dataset.paired_data), f)
@@ -206,8 +207,9 @@ def main():
                     batch = batch_to_device(batch, training_args.device)
                     with torch.autocast(enabled=True, dtype=torch.bfloat16, device_type="cuda"):
                     # print(batch['pixel_values'].shape)
-                        output = model(tgt=batch)
-                    encoded_tensor.append(output["tgt_reps"].cpu().detach().float())
+                        output = model.encode_input_pooling(input=batch, 
+                                                            tokenizer=processor.tokenizer)
+                    encoded_tensor.append(output.cpu().detach().float())
             encoded_tensor = np.concatenate(encoded_tensor)
             with open(encode_tgt_path, 'wb') as f:
                 pickle.dump((encoded_tensor, eval_tgt_dataset.paired_data), f)

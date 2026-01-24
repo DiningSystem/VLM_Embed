@@ -4,5 +4,8 @@
 *.jpeg
 __pycache__
 .venv
-vlm
+vlm/
 training/
+wandb/
+eval_images/
+MMEB-eval_outputs/

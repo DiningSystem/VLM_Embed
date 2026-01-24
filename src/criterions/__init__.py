@@ -1,3 +1,6 @@
+from src.criterions.contrastive_kd_loss import ContrastiveKDLoss
+from src.criterions.contrastive_loss import ContrastiveLoss
+from src.criterions.vision_RKD import VisionRKDLoss
 from .contrastive_loss_with_RKD import ContrastiveLossWithRKD
 from .proposal_loss_with_DTW import ProposalLossWithDTW
 from .universal_logit_distillation import UniversalLogitDistillation
@@ -8,10 +11,14 @@ from .em_kd_llava_ov import EMKDLLavaLoss
 from .span_propose import SpanProposeCriterion
 from .span_propose_attn import SpanProposeCriterionWeighted
 from .span_propose_attn_only_phrase import SpanProposeCriterionWeightedOnlyPhrase
+from .penultimate_mse_loss import PenultimateMSELoss
+from .vision_encoder_kd_loss import VisionEncoderLoss
 from .kl_cosine_distill import kl_cosine_distill
-from .compute_effective_rank import compute_effective_rank_loss
+from .compute_effective_rank import compute_effective_rank
+from .contrastive_pooling_loss import ContrastivePoolingLoss
 
 criterion_list = {
+    "contrastive": ContrastiveLoss,
     "contrastive_rkd": ContrastiveLossWithRKD,
     "proposal_dtw": ProposalLossWithDTW,
     "universal_logit": UniversalLogitDistillation,
@@ -22,9 +29,14 @@ criterion_list = {
     "span_propose": SpanProposeCriterion,
     "span_propose_attn": SpanProposeCriterionWeighted,
     "span_propose_attn_only_phrase": SpanProposeCriterionWeightedOnlyPhrase,
-    "kl_cosine_distill_loss": kl_cosine_distill,
-    "effective_Rank_loss": compute_effective_rank_loss,
 
+    "vision_rkd": VisionRKDLoss,
+    "penultimate_mse": PenultimateMSELoss,
+    "contrastive_kd": ContrastiveKDLoss,
+    "vision_encoder_kd": VisionEncoderLoss,
+    "kl_cosine_distill_loss": kl_cosine_distill,
+    "effective_rank_loss": compute_effective_rank,
+    "contrastive_pooling_loss": ContrastivePoolingLoss,
 }
 
 def build_criterion(args):

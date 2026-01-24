@@ -1,10 +1,10 @@
 SUBSETS=(
-  # "ImageNet-1K" "N24News" "HatefulMemes" "VOC2007" "SUN397"
-    "ImageNet-1K"
+  "ImageNet-1K" "N24News" "HatefulMemes" "VOC2007" "SUN397"
+    # "ImageNet-1K"
 #   "OK-VQA" "A-OKVQA" "DocVQA" "InfographicsVQA" "ChartQA"
 )
 
-MODEL=raghavlite/B3_Qwen2_2B
+MODEL=training/B3_Qwen2_2B_pooling/checkpoint-epoch-0
 
 python eval_mmeb.py \
     --model_name $MODEL \
@@ -21,4 +21,5 @@ python eval_mmeb.py \
     --image_dir eval_images/ \
     --tgt_prefix_mod \
     --load_pretrained_lora True \
+    --modality_gated_pooling True \
     --report_to none

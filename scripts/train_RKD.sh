@@ -4,7 +4,7 @@
 NUM_GPUS_PER_NODE=1
 
 # Đường dẫn tới file script training của bạn
-TRAIN_SCRIPT="train_distill_no_deepspeed.py"
+TRAIN_SCRIPT="train_distill_ddp.py"
 
 # =========================================================================
 # Dùng torchrun để khởi chạy
@@ -14,18 +14,18 @@ torchrun --nproc_per_node=$NUM_GPUS_PER_NODE $TRAIN_SCRIPT \
     --teacher_model_name "raghavlite/B3_Qwen2_2B" \
     --lora True \
     --teacher_lora True \
-    --lora_r 2 \
+    --lora_r 64 \
     --teacher_lora_r 8 \
     --teacher_pooling "eos" \
     --teacher_backbone "qwen2_vl" \
     --model_backbone "llava_qwen2" \
     --pooling "eos" \
     --dataset_name "TIGER-Lab/MMEB-train" \
-    --subset_name "ImageNet_1K" "N24News" "HatefulMemes" "VOC2007" "SUN397" "OK-VQA" "A-OKVQA" "DocVQA" "InfographicsVQA" "ChartQA" "Visual7W" "VisDial" "CIRR" "VisualNews_t2i" "VisualNews_i2t" "MSCOCO_i2t" "MSCOCO_t2i" "NIGHTS" "WebQA" "MSCOCO" \
+    --subset_name "ImageNet_1K" "N24News" "HatefulMemes" "VOC2007" "SUN397" \
     --dataset_split "original" \
     --image_dir "vlm2vec_train/MMEB-train" \
     --output_dir "training/RKD" \
-    --per_device_train_batch_size 4 \
+    --per_device_train_batch_size 8 \
     --gradient_accumulation_steps 1 \
     --learning_rate 1e-5 \
     --num_train_epochs 1 \
@@ -41,4 +41,5 @@ torchrun --nproc_per_node=$NUM_GPUS_PER_NODE $TRAIN_SCRIPT \
     --warmup_ratio 0.03 \
     --kd_weight 0.3 \
     --kd_loss_type "contrastive_rkd" \
-    --image_resolution "low" 
+    --image_resolution "low" \
+    --report_to none 
