@@ -1,6 +1,7 @@
 from copy import deepcopy
 from typing import Dict, Optional
 import torch
+import torch.nn.functional as F
 import torch.distributed as dist
 from torch import nn, Tensor
 from transformers import PreTrainedModel, AutoModelForCausalLM, AutoConfig, AutoTokenizer
@@ -25,6 +26,7 @@ from src.model.llava.constants import DEFAULT_IMAGE_PATCH_TOKEN, DEFAULT_IM_STAR
 
 from peft import PeftConfig
 from unittest.mock import patch
+from .utils import get_hidden_text_vision, get_hidden_text
 
 class MMEBModel(nn.Module):
     TRANSFORMER_CLS = AutoModelForCausalLM
@@ -46,6 +48,9 @@ class MMEBModel(nn.Module):
         if self.is_ddp:
             self.process_rank = dist.get_rank()
             self.world_size = dist.get_world_size()
+        
+        # for z pooling
+        self.vision_weight = 0.6
 
     def encode_input(self, input):
         INTERNVIDEO2 = "internvideo2"
@@ -156,8 +161,8 @@ class MMEBModel(nn.Module):
             attention_matrix = hidden_states.attentions if hasattr(hidden_states, 'attentions') else None
             pooled_output = self._pooling(last_hidden_state, input['attention_mask'])
 
-            all_layers_embeds = torch.stack([self._pooling(hidden_state, input['attention_mask']) 
-                                            for hidden_state in hidden_states.hidden_states]).permute(1, 0, 2)
+            # all_layers_embeds = torch.stack([self._pooling(hidden_state, input['attention_mask']) 
+            #                                 for hidden_state in hidden_states.hidden_states]).permute(1, 0, 2)
             
             return pooled_output, image_features, attention_matrix, output_hidden_states
         """
@@ -190,6 +195,46 @@ class MMEBModel(nn.Module):
         if self.normalize:
             reps = torch.nn.functional.normalize(reps, p=2, dim=-1)
         return reps
+
+    def encode_input_pooling(self, input, tokenizer):
+        pooled_output, image_features, _, output_hidden_states = self.encode_input(input)
+        special_ids = torch.tensor(tokenizer.all_special_ids, device=input['input_ids'].device)
+        
+        num_text_tokens = (~torch.isin(input['input_ids'], 
+                                                   special_ids)).sum(dim=1)
+        batch_size = pooled_output.size(0)
+        cur_idx_img = 0
+        z_list = []
+        for i in range(batch_size):
+            z_qry = 0
+            if image_features is not None:
+                num_vision_tokens = image_features[cur_idx_img].size(0)
+                last_text_state, last_vision_state = get_hidden_text_vision(
+                    output_hidden_states[-1][i], 
+                    num_text_tokens[i].item(), 
+                    num_vision_tokens, 
+                    attention_mask=input['attention_mask'][i]
+                )
+                cur_idx_img += 1
+                last_text_state = F.normalize(last_text_state, p=2, dim=-1)
+                last_vision_state = F.normalize(last_vision_state, p=2, dim=-1)
+                z_v_qry, _ = self.encoder.pool_v(last_vision_state.unsqueeze(0)) # [1, D]
+                z_t_qry, _ = self.encoder.pool_t(last_text_state.unsqueeze(0)) # [1, D]
+                z_qry = z_v_qry * self.vision_weight + z_t_qry * (1 - self.vision_weight)
+            else:
+                last_text_state = get_hidden_text(
+                    output_hidden_states[-1][i], 
+                    num_text_tokens[i].item(), 
+                    attention_mask=input['attention_mask'][i]
+                )
+                last_text_state = F.normalize(last_text_state, p=2, dim=-1)
+                z_qry, _ = self.encoder.pool_t(last_text_state.unsqueeze(0)) # [1, D]
+
+            z_list.append(z_qry)
+        z_pooling = torch.cat(z_list, dim=0)  # [B, D]
+        z_pooling = F.normalize(z_pooling, p=2, dim=-1)
+        return z_pooling
+
 
     @classmethod
     def build(cls, model_args: ModelArguments, **kwargs):
