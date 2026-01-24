@@ -280,7 +280,6 @@ def main():
     model_wrapper.eval()
 
     if model_args.frozen_backbone:
-        model_wrapper.model.encoder.merge_and_unload()
         for p in model_wrapper.parameters():
             p.requires_grad = False
 
