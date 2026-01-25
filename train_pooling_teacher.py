@@ -280,7 +280,6 @@ def main():
     model_wrapper.eval()
 
     if model_args.frozen_backbone:
-        model_wrapper.model.encoder.merge_and_unload()
         for p in model_wrapper.parameters():
             p.requires_grad = False
 
@@ -311,11 +310,10 @@ def main():
         drop_last=True,
         pin_memory=False,
     )
-    num_trainable_vision = 0
+    
     for n, p in model_wrapper.model.named_parameters():
         if p.requires_grad:
-            num_trainable_vision += p.numel()
-        print(f'Trainable param: {n}')
+            print(f'Trainable param: {n}')
 
     optimizer = AdamW(
         list(model_wrapper.model.encoder.pool_v.parameters()) +
