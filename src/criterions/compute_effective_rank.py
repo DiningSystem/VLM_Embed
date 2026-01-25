@@ -61,7 +61,7 @@ class EffectiveRankLoss(nn.Module):
         effective_rank = torch.exp(entropy).to(dtype=hidden_state.dtype)
 
         # 🔥 normalize
-        effective_rank = effective_rank / hidden_state.size(1)
+        # effective_rank = effective_rank / hidden_state.size(1)
         
         return effective_rank
 
@@ -114,7 +114,7 @@ class EffectiveRankLoss(nn.Module):
         target = target * (all_student_qry_reps.size(0) // all_student_pos_reps.size(0))
         contrastive_loss = nn.CrossEntropyLoss()(scores / self.distiller.temperature, target)
         
-        # alpha = distiller.student_hidden_dim / distiller.teacher_hidden_dim
+        alpha = distiller.student_hidden_dim / distiller.teacher_hidden_dim
 
         loss_distill = 0.0
         # cur_idx_qry_img = 0
@@ -151,10 +151,11 @@ class EffectiveRankLoss(nn.Module):
             unpad_teacher_pos_hidden_states_i = self.get_unpadded_hidden(teacher_pos_hidden_states_i, teacher_pos_input['attention_mask'][i])
             effective_rank_teacher_pos = self.compute_effective_rank(unpad_teacher_pos_hidden_states_i)
 
-            loss_distill = loss_distill + (F.mse_loss(effective_rank_student_qry, 
-                                                     effective_rank_teacher_qry) +
-                             F.mse_loss(effective_rank_student_pos, 
-                                     effective_rank_teacher_pos)) 
+
+            loss_distill = loss_distill + (nn.L1Loss()(effective_rank_student_qry, 
+                                                     alpha * effective_rank_teacher_qry) +
+                             nn.L1Loss()(effective_rank_student_pos, 
+                                     alpha * effective_rank_teacher_pos)) 
         
         loss_distill = loss_distill / batch_size
         loss = contrastive_loss + self.kd_loss_weight * loss_distill
