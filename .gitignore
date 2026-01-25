@@ -6,3 +6,5 @@ __pycache__
 .venv
 vlm
 training/
+vlm2vec_train
+*.zip

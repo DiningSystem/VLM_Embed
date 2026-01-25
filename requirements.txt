@@ -21,7 +21,6 @@ timm
 sentencepiece
 opencv-python
 decord
-hnswlib
+#hnswlib
 einops
-deepspeed==0.17.6
 numba

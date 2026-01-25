@@ -1,16 +1,17 @@
 #!/bin/bash
-
+export USE_LIBUV=0
 # Số lượng GPU trên mỗi node (máy)
 NUM_GPUS_PER_NODE=1
 
 # Đường dẫn tới file script training của bạn
-TRAIN_SCRIPT="train_distill_ddp.py"
+TRAIN_SCRIPT="train_distillation.py"
 
 # =========================================================================
-# Dùng torchrun để khởi chạy
+# Dùng torchrun để khởi chạy "A-OKVQA" "DocVQA" "InfographicsVQA" "ChartQA" "Visual7W"
 # =========================================================================
-torchrun --standalone \
-    --nproc_per_node=$NUM_GPUS_PER_NODE $TRAIN_SCRIPT \
+#torchrun --standalone \
+ #   --nproc_per_node=$NUM_GPUS_PER_NODE $TRAIN_SCRIPT \
+python $TRAIN_SCRIPT \
     --model_name apple/FastVLM-0.5B \
     --teacher_model_name "raghavlite/B3_Qwen2_2B" \
     --lora True \
@@ -22,7 +23,7 @@ torchrun --standalone \
     --model_backbone "llava_qwen2" \
     --pooling "eos" \
     --dataset_name "TIGER-Lab/MMEB-train" \
-    --subset_name "OK-VQA" "A-OKVQA" "DocVQA" "InfographicsVQA" "ChartQA" "Visual7W" \
+    --subset_name "OK-VQA" \
     --dataset_split "original" \
     --image_dir "vlm2vec_train/MMEB-train" \
     --percent_data 1.0 \

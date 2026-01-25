@@ -115,7 +115,7 @@ class Distiller(nn.Module):
 
         # load teacher pooling (Stage-1)
         if model_args.teacher_pool_ckpt is not None:
-            ckpt = torch.load(model_args.teacher_pool_ckpt, map_location="gpu")
+            ckpt = torch.load(model_args.teacher_pool_ckpt, map_location="cuda")
             self.teacher_pool_v_qry.load_state_dict(ckpt["vision_pool_qry"])
             self.teacher_pool_t_qry.load_state_dict(ckpt["text_pool_qry"])
             self.teacher_pool_v_pos.load_state_dict(ckpt["vision_pool_pos"])
