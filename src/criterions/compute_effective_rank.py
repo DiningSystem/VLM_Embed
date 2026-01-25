@@ -50,7 +50,7 @@ class EffectiveRankLoss(nn.Module):
         # Compute covariance matrix
         cov_matrix = torch.matmul(hidden_state.T, hidden_state) / hidden_state.size(0)  # [Hidden size, Hidden size]
         # Compute eigenvalues
-        eigenvalues = torch.linalg.eigvalsh(cov_matrix)  # [Hidden size]
+        eigenvalues = torch.linalg.eigvalsh(cov_matrix.float())  # [Hidden size]
         # Ensure eigenvalues are non-negative
         eigenvalues = torch.clamp(eigenvalues, min=1e-12)
         # Normalize eigenvalues to form a probability distribution
@@ -58,7 +58,7 @@ class EffectiveRankLoss(nn.Module):
         # Compute entropy
         entropy = -torch.sum(prob_dist * torch.log(prob_dist + 1e-12))
         # Effective rank is exp(entropy)
-        effective_rank = torch.exp(entropy)
+        effective_rank = torch.exp(entropy).to(dtype=hidden_state.dtype)
         return effective_rank
 
     def forward(self, distiller, input_data):
