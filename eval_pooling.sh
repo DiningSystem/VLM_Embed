@@ -6,7 +6,7 @@ SUBSETS=(
 
 MODEL=training/B3_Qwen2_2B_pooling/checkpoint-epoch-0
 
-python eval_mmebeval_mmeb_pooling.py.py \
+python eval_mmeb_pooling.py \
     --model_name $MODEL \
     --encode_output_path ./MMEB-eval_outputs/B3_Qwen2_2B/ \
     --lora True --lora_r 8 --lora_alpha 64 \
