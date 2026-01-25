@@ -14,7 +14,7 @@ from .span_propose_attn_only_phrase import SpanProposeCriterionWeightedOnlyPhras
 from .penultimate_mse_loss import PenultimateMSELoss
 from .vision_encoder_kd_loss import VisionEncoderLoss
 from .kl_cosine_distill import kl_cosine_distill
-from .compute_effective_rank import compute_effective_rank
+from .compute_effective_rank import EffectiveRankLoss
 from .contrastive_pooling_loss import ContrastivePoolingLoss
 
 criterion_list = {
@@ -35,7 +35,7 @@ criterion_list = {
     "contrastive_kd": ContrastiveKDLoss,
     "vision_encoder_kd": VisionEncoderLoss,
     "kl_cosine_distill_loss": kl_cosine_distill,
-    "effective_rank_loss": compute_effective_rank,
+    "effective_rank_loss": EffectiveRankLoss,
     "contrastive_pooling_loss": ContrastivePoolingLoss,
 }
 
