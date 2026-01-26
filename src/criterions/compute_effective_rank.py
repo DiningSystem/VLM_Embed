@@ -39,31 +39,45 @@ class EffectiveRankLoss(nn.Module):
         unpadded_hidden_state = hidden_state[valid_indices, :] # [Num valid tokens, Hidden size]
         return unpadded_hidden_state
     
-    def compute_effective_rank(self, hidden_state: Tensor) -> Tensor:
-        '''
+    def compute_effective_rank(self, hidden_state: Tensor, eps: float = 1e-5) -> Tensor:
+        """
         Compute the effective rank of the hidden states
         Args:
-            hidden_state: tensor, the hidden states [Seq len, Hidden size]
+            hidden_state: Tensor of shape [N, D] 
+                        (N = batch size or seq len, D = hidden size)
         Returns:
-            effective_rank: tensor, the effective rank value
-        '''
-        # Compute covariance matrix
-        cov_matrix = torch.matmul(hidden_state.T, hidden_state) / hidden_state.size(0)  # [Hidden size, Hidden size]
-        # Compute eigenvalues
-        eigenvalues = torch.linalg.eigvalsh(cov_matrix.float())  # [Hidden size]
-        # Ensure eigenvalues are non-negative
-        eigenvalues = torch.clamp(eigenvalues, min=1e-12)
-        # Normalize eigenvalues to form a probability distribution
-        prob_dist = eigenvalues / torch.sum(eigenvalues)
-        # Compute entropy
-        entropy = -torch.sum(prob_dist * torch.log(prob_dist + 1e-12))
-        # Effective rank is exp(entropy)
-        effective_rank = torch.exp(entropy).to(dtype=hidden_state.dtype)
+            effective_rank: scalar Tensor
+        """
+        # [N, D]
+        X = hidden_state
 
-        # 🔥 normalize
-        # effective_rank = effective_rank / hidden_state.size(1)
-        
-        return effective_rank
+        # 1. Centering (zero-mean)
+        X = X - X.mean(dim=0, keepdim=True)
+
+        # 2. Covariance matrix: [D, D]
+        N = X.size(0)
+        cov_matrix = (X.T @ X) / N
+
+        # 3. Numerical stability (important when N << D)
+        D = cov_matrix.size(0)
+        cov_matrix = cov_matrix + eps * torch.eye(
+            D, device=cov_matrix.device, dtype=cov_matrix.dtype
+        )
+
+        # 4. Eigenvalues (symmetric PSD matrix)
+        eigenvalues = torch.linalg.eigvalsh(cov_matrix.float())
+
+        # 5. Clamp to avoid log(0)
+        eigenvalues = torch.clamp(eigenvalues, min=1e-12)
+
+        # 6. Probability distribution
+        prob_dist = eigenvalues / eigenvalues.sum()
+
+        # 7. Entropy & effective rank
+        entropy = -torch.sum(prob_dist * torch.log(prob_dist))
+        effective_rank = torch.exp(entropy)
+
+        return effective_rank.to(dtype=hidden_state.dtype)
 
     def forward(self, distiller, input_data):
         self.distiller = distiller
@@ -89,6 +103,7 @@ class EffectiveRankLoss(nn.Module):
         teacher_pos_input = input_data['teacher_inputs']['pos']
         
         batch_size = student_qry_input['input_ids'].size(0)
+
         with torch.no_grad():
             teacher_model.eval()
             teacher_qry_output = teacher_model.encode_input(teacher_qry_input)
@@ -117,6 +132,18 @@ class EffectiveRankLoss(nn.Module):
         alpha = distiller.student_hidden_dim / distiller.teacher_hidden_dim
 
         loss_distill = 0.0
+
+        effective_rank_student_qry = self.compute_effective_rank(student_qry_reps)
+        effective_rank_teacher_qry = self.compute_effective_rank(teacher_qry_reps)
+        effective_rank_student_pos = self.compute_effective_rank(student_pos_reps)
+        effective_rank_teacher_pos = self.compute_effective_rank(teacher_pos_reps)
+
+        loss_distill = loss_distill + (nn.L1Loss()(effective_rank_student_qry, 
+                                                    alpha * effective_rank_teacher_qry) +
+                            nn.L1Loss()(effective_rank_student_pos, 
+                                    alpha * effective_rank_teacher_pos)) 
+
+
         # cur_idx_qry_img = 0
         # cur_idx_pos_img = 0
 
@@ -134,30 +161,32 @@ class EffectiveRankLoss(nn.Module):
         # num_teacher_text_pos_tokens = (~torch.isin(teacher_pos_input['input_ids'], 
         #                                            teacher_special_ids)).sum(dim=1)
         
-        for i in range(batch_size):
-            student_qry_hidden_states_i = student_qry_hidden_states[-1][i] # (seq_len, hidden_size)
-            unpad_student_qry_hidden_states_i = self.get_unpadded_hidden(student_qry_hidden_states_i, student_qry_input['attention_mask'][i])
-            effective_rank_student_qry = self.compute_effective_rank(unpad_student_qry_hidden_states_i)
+        # for i in range(batch_size):
+        #     student_qry_hidden_states_i = student_qry_hidden_states[-1][i] # (seq_len, hidden_size)
+        #     unpad_student_qry_hidden_states_i = self.get_unpadded_hidden(student_qry_hidden_states_i, student_qry_input['attention_mask'][i])
+        #     effective_rank_student_qry = self.compute_effective_rank(unpad_student_qry_hidden_states_i)
 
-            teacher_qry_hidden_states_i = teacher_qry_hidden_states[-1][i] # (seq_len, hidden_size)
-            unpad_teacher_qry_hidden_states_i = self.get_unpadded_hidden(teacher_qry_hidden_states_i, teacher_qry_input['attention_mask'][i])
-            effective_rank_teacher_qry = self.compute_effective_rank(unpad_teacher_qry_hidden_states_i)
+        #     teacher_qry_hidden_states_i = teacher_qry_hidden_states[-1][i] # (seq_len, hidden_size)
+        #     unpad_teacher_qry_hidden_states_i = self.get_unpadded_hidden(teacher_qry_hidden_states_i, teacher_qry_input['attention_mask'][i])
+        #     effective_rank_teacher_qry = self.compute_effective_rank(unpad_teacher_qry_hidden_states_i)
 
-            student_pos_hidden_states_i = student_pos_hidden_states[-1][i] # (seq_len, hidden_size)
-            unpad_student_pos_hidden_states_i = self.get_unpadded_hidden(student_pos_hidden_states_i, student_pos_input['attention_mask'][i])
-            effective_rank_student_pos = self.compute_effective_rank(unpad_student_pos_hidden_states_i)
+        #     student_pos_hidden_states_i = student_pos_hidden_states[-1][i] # (seq_len, hidden_size)
+        #     unpad_student_pos_hidden_states_i = self.get_unpadded_hidden(student_pos_hidden_states_i, student_pos_input['attention_mask'][i])
+        #     effective_rank_student_pos = self.compute_effective_rank(unpad_student_pos_hidden_states_i)
 
-            teacher_pos_hidden_states_i = teacher_pos_hidden_states[-1][i] # (seq_len, hidden_size)
-            unpad_teacher_pos_hidden_states_i = self.get_unpadded_hidden(teacher_pos_hidden_states_i, teacher_pos_input['attention_mask'][i])
-            effective_rank_teacher_pos = self.compute_effective_rank(unpad_teacher_pos_hidden_states_i)
+        #     teacher_pos_hidden_states_i = teacher_pos_hidden_states[-1][i] # (seq_len, hidden_size)
+        #     unpad_teacher_pos_hidden_states_i = self.get_unpadded_hidden(teacher_pos_hidden_states_i, teacher_pos_input['attention_mask'][i])
+        #     effective_rank_teacher_pos = self.compute_effective_rank(unpad_teacher_pos_hidden_states_i)
 
 
-            loss_distill = loss_distill + (nn.L1Loss()(effective_rank_student_qry, 
-                                                     alpha * effective_rank_teacher_qry) +
-                             nn.L1Loss()(effective_rank_student_pos, 
-                                     alpha * effective_rank_teacher_pos)) 
+        #     loss_distill = loss_distill + (nn.L1Loss()(effective_rank_student_qry, 
+        #                                              alpha * effective_rank_teacher_qry) +
+        #                      nn.L1Loss()(effective_rank_student_pos, 
+        #                              alpha * effective_rank_teacher_pos)) 
         
-        loss_distill = loss_distill / batch_size
+        # loss_distill = loss_distill / batch_size
+
+
         loss = contrastive_loss + self.kd_loss_weight * loss_distill
 
         return {
