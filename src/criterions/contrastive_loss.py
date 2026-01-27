@@ -7,6 +7,12 @@ class ContrastiveLoss(nn.Module):
     def __init__(self, args):
         super(ContrastiveLoss, self).__init__()
         self.args = args
+        if dist.is_initialized():
+            self.world_size = dist.get_world_size()
+            self.process_rank = dist.get_rank()
+        else:
+            self.world_size = 1
+            self.process_rank = 0
     
     def _dist_gather_tensor(self, t: torch.Tensor):
         t = t.contiguous()
