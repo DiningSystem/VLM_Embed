@@ -133,20 +133,8 @@ class EffectiveRankLoss(nn.Module):
 
         loss_distill = 0.0
 
-        effective_rank_student_qry = self.compute_effective_rank(student_qry_reps)
-        effective_rank_teacher_qry = self.compute_effective_rank(teacher_qry_reps)
-        effective_rank_student_pos = self.compute_effective_rank(student_pos_reps)
-        effective_rank_teacher_pos = self.compute_effective_rank(teacher_pos_reps)
-
-        loss_distill = loss_distill + (nn.L1Loss()(effective_rank_student_qry, 
-                                                    alpha * effective_rank_teacher_qry) +
-                            nn.L1Loss()(effective_rank_student_pos, 
-                                    alpha * effective_rank_teacher_pos)) 
-
-
-        # cur_idx_qry_img = 0
-        # cur_idx_pos_img = 0
-
+        cur_idx_qry_img = 0
+        cur_idx_pos_img = 0
 
         # student_special_ids = torch.tensor(student_tokenizer.all_special_ids, device=student_qry_input['input_ids'].device)
         # teacher_special_ids = torch.tensor(teacher_tokenizer.all_special_ids, device=teacher_qry_input['input_ids'].device)
@@ -161,30 +149,29 @@ class EffectiveRankLoss(nn.Module):
         # num_teacher_text_pos_tokens = (~torch.isin(teacher_pos_input['input_ids'], 
         #                                            teacher_special_ids)).sum(dim=1)
         
-        # for i in range(batch_size):
-        #     student_qry_hidden_states_i = student_qry_hidden_states[-1][i] # (seq_len, hidden_size)
-        #     unpad_student_qry_hidden_states_i = self.get_unpadded_hidden(student_qry_hidden_states_i, student_qry_input['attention_mask'][i])
-        #     effective_rank_student_qry = self.compute_effective_rank(unpad_student_qry_hidden_states_i)
+        for i in range(batch_size):
+            # --- Xử lý QUERY Image ---
+            if student_qry_image_features is not None and teacher_qry_image_features is not None:
+                # Kiểm tra index hợp lệ
+                if cur_idx_qry_img < len(student_qry_image_features) and cur_idx_qry_img < len(teacher_qry_image_features):
+                    stu_feat = student_qry_image_features[cur_idx_qry_img]
+                    tea_feat = teacher_qry_image_features[cur_idx_qry_img]
+                    stu_vision_eff_rank = self.compute_effective_rank(stu_feat)
+                    tea_vision_eff_rank = self.compute_effective_rank(tea_feat)
+                    loss_distill += nn.L1Loss()(stu_vision_eff_rank, tea_vision_eff_rank * alpha)
+                    cur_idx_qry_img += 1
 
-        #     teacher_qry_hidden_states_i = teacher_qry_hidden_states[-1][i] # (seq_len, hidden_size)
-        #     unpad_teacher_qry_hidden_states_i = self.get_unpadded_hidden(teacher_qry_hidden_states_i, teacher_qry_input['attention_mask'][i])
-        #     effective_rank_teacher_qry = self.compute_effective_rank(unpad_teacher_qry_hidden_states_i)
+            if student_pos_image_features is not None and teacher_pos_image_features is not None:
+                if cur_idx_pos_img < len(student_pos_image_features) and cur_idx_pos_img < len(teacher_pos_image_features):
+                    stu_feat_pos = student_pos_image_features[cur_idx_pos_img]
+                    tea_feat_pos = teacher_pos_image_features[cur_idx_pos_img]
 
-        #     student_pos_hidden_states_i = student_pos_hidden_states[-1][i] # (seq_len, hidden_size)
-        #     unpad_student_pos_hidden_states_i = self.get_unpadded_hidden(student_pos_hidden_states_i, student_pos_input['attention_mask'][i])
-        #     effective_rank_student_pos = self.compute_effective_rank(unpad_student_pos_hidden_states_i)
+                    stu_vision_eff_rank = self.compute_effective_rank(stu_feat_pos)
+                    tea_vision_eff_rank = self.compute_effective_rank(tea_feat_pos)
+                    loss_distill += nn.L1Loss()(stu_vision_eff_rank, tea_vision_eff_rank * alpha)
+                    cur_idx_pos_img += 1
 
-        #     teacher_pos_hidden_states_i = teacher_pos_hidden_states[-1][i] # (seq_len, hidden_size)
-        #     unpad_teacher_pos_hidden_states_i = self.get_unpadded_hidden(teacher_pos_hidden_states_i, teacher_pos_input['attention_mask'][i])
-        #     effective_rank_teacher_pos = self.compute_effective_rank(unpad_teacher_pos_hidden_states_i)
-
-
-        #     loss_distill = loss_distill + (nn.L1Loss()(effective_rank_student_qry, 
-        #                                              alpha * effective_rank_teacher_qry) +
-        #                      nn.L1Loss()(effective_rank_student_pos, 
-        #                              alpha * effective_rank_teacher_pos)) 
-        
-        # loss_distill = loss_distill / batch_size
+        loss_distill = loss_distill / (cur_idx_qry_img + cur_idx_pos_img + 1e-8)
 
 
         loss = contrastive_loss + self.kd_loss_weight * loss_distill
