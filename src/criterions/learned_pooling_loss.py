@@ -12,6 +12,7 @@ class LearnedPoolingLoss(nn.Module):
         self.args = args
         self.vision_weight = 0.6
         self.reg_weight = 1e-4
+        self.q_learn = LearnedPooler(1024)
         if dist.is_initialized():
             self.world_size = dist.get_world_size()
             self.process_rank = dist.get_rank()
@@ -47,7 +48,6 @@ class LearnedPoolingLoss(nn.Module):
         teacher_qry_input = input_data['teacher_inputs']['qry']
         teacher_pos_input = input_data['teacher_inputs']['pos']
         
-        batch_size = student_qry_input['input_ids'].size(0)
         with torch.no_grad():
             teacher_model.eval()
             teacher_qry_output = teacher_model.encode_input(teacher_qry_input)
@@ -67,12 +67,11 @@ class LearnedPoolingLoss(nn.Module):
             all_student_qry_hidden_states = student_qry_hidden_states
             all_student_pos_hidden_states = student_pos_hidden_states
         
-        q_learn = LearnedPooler(student_pos_hidden_states[-1].size(-1))
         
-        q_teacher_qry = q_learn(teacher_qry_hidden_states[-1],teacher_qry_input['attention_mask'])
-        q_teacher_pos = q_learn(teacher_qry_hidden_states[-1],teacher_pos_input['attention_mask'])
-        q_student_qry = q_learn(teacher_qry_hidden_states[-1],teacher_qry_input['attention_mask'])
-        q_student_pos = q_learn(teacher_qry_hidden_states[-1],teacher_pos_input['attention_mask'])
+        q_teacher_qry = self.q_learn(teacher_qry_hidden_states[-1],teacher_qry_input['attention_mask'])
+        q_teacher_pos = self.q_learn(teacher_pos_hidden_states[-1],teacher_pos_input['attention_mask'])
+        q_student_qry = self.q_learn(all_student_qry_hidden_states[-1],student_qry_input['attention_mask'])
+        q_student_pos = self.q_learn(all_student_pos_hidden_states[-1],student_pos_input['attention_mask'])
 
         mse_qry = F.mse_loss(q_student_qry, q_teacher_qry, reduction='mean')
         mse_pos = F.mse_loss(q_student_pos, q_teacher_pos, reduction='mean')
