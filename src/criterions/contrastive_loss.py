@@ -30,17 +30,17 @@ class ContrastiveLoss(nn.Module):
         qry_reps, _, _, _ = model.encode_input(input_qry)
         pos_reps, _, _, _ = model.encode_input(input_pos)
 
-        # if self.world_size > 1:
-        #     all_qry_reps = self._dist_gather_tensor(qry_reps)
-        #     all_pos_reps = self._dist_gather_tensor(pos_reps)
-        # else:
-        #     all_qry_reps = qry_reps
-        #     all_pos_reps = pos_reps
-        # scores = model.compute_similarity(all_qry_reps, all_pos_reps)
-        scores = model.compute_similarity(qry_reps, pos_reps)
-        scores = scores.view(qry_reps.size(0), -1)
+        if self.world_size > 1:
+            all_qry_reps = self._dist_gather_tensor(qry_reps)
+            all_pos_reps = self._dist_gather_tensor(pos_reps)
+        else:
+            all_qry_reps = qry_reps
+            all_pos_reps = pos_reps
+            
+        scores = model.compute_similarity(all_qry_reps, all_pos_reps)
+        scores = scores.view(all_qry_reps.size(0), -1)
         target = torch.arange(scores.size(0), device=scores.device, dtype=torch.long)
-        target = target * (qry_reps.size(0) // pos_reps.size(0))
+        target = target * (all_qry_reps.size(0) // all_pos_reps.size(0))
         contrastive_loss = nn.CrossEntropyLoss()(scores / model_wrapper.temperature, target)
 
         return {
