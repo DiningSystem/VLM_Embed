@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.distributed as dist
 import torch.nn.functional as F
 from torch import Tensor
-
+from .utils import get_hidden_text_vision, get_hidden_text
 
 class EffectiveRankLoss(nn.Module):
     def __init__(self, args):
@@ -39,44 +39,29 @@ class EffectiveRankLoss(nn.Module):
         unpadded_hidden_state = hidden_state[valid_indices, :] # [Num valid tokens, Hidden size]
         return unpadded_hidden_state
     
-    def compute_effective_rank(self, hidden_state: Tensor, eps: float = 1e-5) -> Tensor:
+    def compute_effective_rank(self, hidden_state: torch.Tensor, eps: float = 1e-6) -> torch.Tensor:
         """
-        Compute the effective rank of the hidden states
-        Args:
-            hidden_state: Tensor of shape [N, D] 
-                        (N = batch size or seq len, D = hidden size)
-        Returns:
-            effective_rank: scalar Tensor
+        Compute Effective Rank directly on Cosine Similarity Matrix.
+        Optimized for AMD GPUs (avoiding large matrix ops).
         """
-        # [N, D]
-        X = hidden_state
-
-        # 1. Centering (zero-mean)
-        X = X - X.mean(dim=0, keepdim=True)
-
-        # 2. Covariance matrix: [D, D]
-        N = X.size(0)
-        cov_matrix = (X.T @ X) / N
-
-        # 3. Numerical stability (important when N << D)
-        D = cov_matrix.size(0)
-        cov_matrix = cov_matrix + eps * torch.eye(
-            D, device=cov_matrix.device, dtype=cov_matrix.dtype
-        )
-
-        # 4. Eigenvalues (symmetric PSD matrix)
-        eigenvalues = torch.linalg.eigvalsh(cov_matrix.float())
-
-        # 5. Clamp to avoid log(0)
-        eigenvalues = torch.clamp(eigenvalues, min=1e-12)
-
-        # 6. Probability distribution
-        prob_dist = eigenvalues / eigenvalues.sum()
-
-        # 7. Entropy & effective rank
-        entropy = -torch.sum(prob_dist * torch.log(prob_dist))
+        # Ép kiểu float32 để tránh lỗi
+        X = X.float()
+        N, D = X.shape
+        # 2. Dual Trick: Chọn ma trận nhỏ hơn để tính
+        if N < D:
+            matrix = torch.matmul(X, X.T) 
+        else:
+            matrix = torch.matmul(X.T, X)
+        # eigvalsh nhanh và ổn định cho ma trận đối xứng
+        eigenvalues = torch.linalg.eigvalsh(matrix)
+        # Chỉ lấy phần dương & tránh log(0)
+        eigenvalues = torch.clamp(eigenvalues, min=eps)
+        # (Tổng eigenvalue của ma trận correlation = N, nhưng ta cứ chia tổng cho chắc)
+        prob = eigenvalues / eigenvalues.sum()
+        # Tính Entropy & ER
+        entropy = -torch.sum(prob * torch.log(prob))
         effective_rank = torch.exp(entropy)
-
+        # Trả về đúng datatype gốc (bf16/fp16) để tiếp tục train
         return effective_rank.to(dtype=hidden_state.dtype)
 
     def forward(self, distiller, input_data):
@@ -136,19 +121,22 @@ class EffectiveRankLoss(nn.Module):
         cur_idx_qry_img = 0
         cur_idx_pos_img = 0
 
-        # student_special_ids = torch.tensor(student_tokenizer.all_special_ids, device=student_qry_input['input_ids'].device)
-        # teacher_special_ids = torch.tensor(teacher_tokenizer.all_special_ids, device=teacher_qry_input['input_ids'].device)
+        student_special_ids = torch.tensor(student_tokenizer.all_special_ids, device=student_qry_input['input_ids'].device)
+        teacher_special_ids = torch.tensor(teacher_tokenizer.all_special_ids, device=teacher_qry_input['input_ids'].device)
 
-        # num_student_text_qry_tokens = (~torch.isin(student_qry_input['input_ids'], 
-        #                                            student_special_ids)).sum(dim=1)
-        # num_student_text_pos_tokens = (~torch.isin(student_pos_input['input_ids'], 
-        #                                            student_special_ids)).sum(dim=1)
+        num_student_text_qry_tokens = (~torch.isin(student_qry_input['input_ids'], 
+                                                   student_special_ids)).sum(dim=1)
+        num_student_text_pos_tokens = (~torch.isin(student_pos_input['input_ids'], 
+                                                   student_special_ids)).sum(dim=1)
 
-        # num_teacher_text_qry_tokens = (~torch.isin(teacher_qry_input['input_ids'], 
-        #                                            teacher_special_ids)).sum(dim=1)
-        # num_teacher_text_pos_tokens = (~torch.isin(teacher_pos_input['input_ids'], 
-        #                                            teacher_special_ids)).sum(dim=1)
+        num_teacher_text_qry_tokens = (~torch.isin(teacher_qry_input['input_ids'], 
+                                                   teacher_special_ids)).sum(dim=1)
+        num_teacher_text_pos_tokens = (~torch.isin(teacher_pos_input['input_ids'], 
+                                                   teacher_special_ids)).sum(dim=1)
         
+        loss_vision_er = 0.0
+        loss_last_text_er = 0.0
+
         for i in range(batch_size):
             # --- Xử lý QUERY Image ---
             if student_qry_image_features is not None and teacher_qry_image_features is not None:
@@ -156,23 +144,99 @@ class EffectiveRankLoss(nn.Module):
                 if cur_idx_qry_img < len(student_qry_image_features) and cur_idx_qry_img < len(teacher_qry_image_features):
                     stu_feat = student_qry_image_features[cur_idx_qry_img]
                     tea_feat = teacher_qry_image_features[cur_idx_qry_img]
-                    stu_vision_eff_rank = self.compute_effective_rank(stu_feat)
-                    tea_vision_eff_rank = self.compute_effective_rank(tea_feat)
-                    loss_distill += nn.L1Loss()(stu_vision_eff_rank, tea_vision_eff_rank * alpha)
+                    loss_vision_er += nn.L1Loss()(self.compute_effective_rank(stu_feat), 
+                                                  self.compute_effective_rank(tea_feat) * alpha)
+
+                    last_stu_text_hidden_state, _ = get_hidden_text_vision(
+                        student_qry_hidden_states[-1][i],
+                        num_student_text_qry_tokens[i].item(),
+                        stu_feat.size(0),
+                        student_qry_input['attention_mask'][i]
+                    )
+
+                    last_tea_text_hidden_state, _ = get_hidden_text_vision(
+                        teacher_qry_hidden_states[-1][i],
+                        num_teacher_text_qry_tokens[i].item(),
+                        tea_feat.size(0),
+                        teacher_qry_input['attention_mask'][i]
+                    )
+
+                    loss_last_text_er += nn.L1Loss()(
+                        self.compute_effective_rank(last_stu_text_hidden_state),
+                        self.compute_effective_rank(last_tea_text_hidden_state) * alpha
+                    )
+
                     cur_idx_qry_img += 1
+            # no vision tokens
+            else:
+                last_stu_text_hidden_state = get_hidden_text(
+                    student_qry_hidden_states[-1][i],
+                    num_student_text_qry_tokens[i].item(),
+                    student_qry_input['attention_mask'][i]
+                )
+
+                last_tea_text_hidden_state = get_hidden_text(
+                    teacher_qry_hidden_states[-1][i],
+                    num_teacher_text_qry_tokens[i].item(),
+                    teacher_qry_input['attention_mask'][i]
+                )
+
+                loss_last_text_er += nn.L1Loss()(
+                    self.compute_effective_rank(last_stu_text_hidden_state),
+                    self.compute_effective_rank(last_tea_text_hidden_state) * alpha
+                )
 
             if student_pos_image_features is not None and teacher_pos_image_features is not None:
                 if cur_idx_pos_img < len(student_pos_image_features) and cur_idx_pos_img < len(teacher_pos_image_features):
                     stu_feat_pos = student_pos_image_features[cur_idx_pos_img]
                     tea_feat_pos = teacher_pos_image_features[cur_idx_pos_img]
 
-                    stu_vision_eff_rank = self.compute_effective_rank(stu_feat_pos)
-                    tea_vision_eff_rank = self.compute_effective_rank(tea_feat_pos)
-                    loss_distill += nn.L1Loss()(stu_vision_eff_rank, tea_vision_eff_rank * alpha)
+                    loss_vision_er += nn.L1Loss()(self.compute_effective_rank(stu_feat_pos), 
+                                                  self.compute_effective_rank(tea_feat_pos) * alpha)
+
+                    last_stu_text_hidden_state, _ = get_hidden_text_vision(
+                        student_pos_hidden_states[-1][i],
+                        num_student_text_pos_tokens[i].item(),
+                        stu_feat_pos.size(0),
+                        student_pos_input['attention_mask'][i]
+                    )
+
+                    last_tea_text_hidden_state, _ = get_hidden_text_vision(
+                        teacher_pos_hidden_states[-1][i],
+                        num_teacher_text_pos_tokens[i].item(),
+                        tea_feat_pos.size(0),
+                        teacher_pos_input['attention_mask'][i]
+                    )
+
+                    loss_last_text_er += nn.L1Loss()(
+                        self.compute_effective_rank(last_stu_text_hidden_state),
+                        self.compute_effective_rank(last_tea_text_hidden_state) * alpha
+                    )
+
                     cur_idx_pos_img += 1
+            # no vision tokens
+            else:
+                last_stu_text_hidden_state = get_hidden_text(
+                    student_pos_hidden_states[-1][i],
+                    num_student_text_pos_tokens[i].item(),
+                    student_pos_input['attention_mask'][i]
+                )
 
-        loss_distill = loss_distill / (cur_idx_qry_img + cur_idx_pos_img + 1e-8)
+                last_tea_text_hidden_state = get_hidden_text(
+                    teacher_pos_hidden_states[-1][i],
+                    num_teacher_text_pos_tokens[i].item(),
+                    teacher_pos_input['attention_mask'][i]
+                )
 
+                loss_last_text_er += nn.L1Loss()(
+                    self.compute_effective_rank(last_stu_text_hidden_state),
+                    self.compute_effective_rank(last_tea_text_hidden_state) * alpha
+                )
+
+        loss_vision_er = loss_vision_er / (cur_idx_qry_img + cur_idx_pos_img + 1e-8)
+        loss_last_text_er = loss_last_text_er / (2*batch_size + 1e-8)
+        
+        loss_distill = 0.5* loss_vision_er + 0.5* loss_last_text_er
 
         loss = contrastive_loss + self.kd_loss_weight * loss_distill
 
