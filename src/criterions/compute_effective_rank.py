@@ -45,7 +45,7 @@ class EffectiveRankLoss(nn.Module):
         Optimized for AMD GPUs (avoiding large matrix ops).
         """
         # Ép kiểu float32 để tránh lỗi
-        X = X.float()
+        X = hidden_state.float()
         N, D = X.shape
         # 2. Dual Trick: Chọn ma trận nhỏ hơn để tính
         if N < D:
