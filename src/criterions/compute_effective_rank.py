@@ -39,29 +39,40 @@ class EffectiveRankLoss(nn.Module):
         unpadded_hidden_state = hidden_state[valid_indices, :] # [Num valid tokens, Hidden size]
         return unpadded_hidden_state
     
-    def compute_effective_rank(self, hidden_state: torch.Tensor, eps: float = 1e-6) -> torch.Tensor:
+    def compute_effective_rank(
+        self,
+        hidden_state: torch.Tensor,
+        eps: float = 1e-6,
+        top_k: int | None = None,   # optional: tăng tốc thêm
+    ) -> torch.Tensor:
         """
-        Compute Effective Rank directly on Cosine Similarity Matrix.
-        Optimized for AMD GPUs (avoiding large matrix ops).
+        Compute Effective Rank using singular values of X.
+        Faster and more stable than eig(X^T X) or eig(XX^T).
         """
-        # Ép kiểu float32 để tránh lỗi
-        X = hidden_state.float()
-        N, D = X.shape
-        # 2. Dual Trick: Chọn ma trận nhỏ hơn để tính
-        if N < D:
-            matrix = torch.matmul(X, X.T) 
-        else:
-            matrix = torch.matmul(X.T, X)
-        # eigvalsh nhanh và ổn định cho ma trận đối xứng
-        eigenvalues = torch.linalg.eigvalsh(matrix)
-        # Chỉ lấy phần dương & tránh log(0)
-        eigenvalues = torch.clamp(eigenvalues, min=eps)
-        # (Tổng eigenvalue của ma trận correlation = N, nhưng ta cứ chia tổng cho chắc)
-        prob = eigenvalues / eigenvalues.sum()
-        # Tính Entropy & ER
-        entropy = -torch.sum(prob * torch.log(prob))
+        # Cast fp32 cho SVD (bf16 không support)
+        X = hidden_state.float()    # [N, D]
+
+        # Singular values: s_i >= 0
+        s = torch.linalg.svdvals(X)   # shape [min(N, D)]
+
+        # Eigenvalues của X^T X (hoặc XX^T)
+        eigvals = s * s               # energy spectrum
+
+        # Optional: chỉ lấy top-k eigenvalues (rất nên nếu D/N lớn)
+        if top_k is not None and eigvals.numel() > top_k:
+            eigvals = eigvals[-top_k:]
+
+        # Tránh log(0)
+        eigvals = eigvals.clamp(min=eps)
+
+        # Normalize thành phân phối xác suất
+        prob = eigvals / eigvals.sum()
+
+        # Entropy → Effective Rank
+        entropy = -(prob * torch.log(prob)).sum()
         effective_rank = torch.exp(entropy)
-        # Trả về đúng datatype gốc (bf16/fp16) để tiếp tục train
+
+        # Trả về dtype gốc để tiếp tục train
         return effective_rank.to(dtype=hidden_state.dtype)
 
     def forward(self, distiller, input_data):
