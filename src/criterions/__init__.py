@@ -1,5 +1,6 @@
 from src.criterions.contrastive_kd_loss import ContrastiveKDLoss
 from src.criterions.contrastive_loss import ContrastiveLoss
+from src.criterions.eigen_rank_align import ERAlign
 from src.criterions.vision_RKD import VisionRKDLoss
 from .contrastive_loss_with_RKD import ContrastiveLossWithRKD
 from .proposal_loss_with_DTW import ProposalLossWithDTW
@@ -36,6 +37,7 @@ criterion_list = {
     "vision_encoder_kd": VisionEncoderLoss,
     "kl_cosine_distill_loss": kl_cosine_distill,
     "effective_rank_loss": EffectiveRankLoss,
+    "eigen_rank_align_loss": ERAlign,
     "contrastive_pooling_loss": ContrastivePoolingLoss,
 }
 
