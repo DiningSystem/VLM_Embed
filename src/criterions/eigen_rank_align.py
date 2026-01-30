@@ -67,14 +67,14 @@ class ERAlign(nn.Module):
 
     def wasserstein_1d_loss(self, stu_prob: Tensor, tea_prob: Tensor) -> Tensor:
         # cumulative mass
-        stu_cdf = torch.cumsum(stu_prob, dim=0)
-        tea_cdf = torch.cumsum(tea_prob, dim=0)
+        stu_cdf = torch.cumsum(stu_prob, dim=-1)
+        tea_cdf = torch.cumsum(tea_prob, dim=-1)
 
         # Pad về max length (zero-padding ở tail là hợp lệ trong OT)
-        max_len = max(stu_cdf.numel(), tea_cdf.numel())
+        max_len = max(stu_cdf.shape[-1], tea_cdf.shape[-1])
 
-        stu_cdf = F.pad(stu_cdf, (0, max_len - stu_cdf.numel()), value=1.0)
-        tea_cdf = F.pad(tea_cdf, (0, max_len - tea_cdf.numel()), value=1.0)
+        stu_cdf = F.pad(stu_cdf, (0, max_len - stu_cdf.shape[-1]), value=1.0)
+        tea_cdf = F.pad(tea_cdf, (0, max_len - tea_cdf.shape[-1]), value=1.0)
 
         return torch.mean(torch.abs(stu_cdf - tea_cdf))
 
@@ -143,8 +143,8 @@ class ERAlign(nn.Module):
         num_teacher_text_qry_tokens = count_clean_text_tokens(teacher_qry_input, teacher_special_ids)
         num_teacher_text_pos_tokens = count_clean_text_tokens(teacher_pos_input, teacher_special_ids)
         
-        loss_vision_kld = 0.0
-        loss_text_kld = 0.0
+        loss_vision_eigen_rank = 0.0
+        loss_text_eigen_rank = 0.0
 
         # Accumulators để tránh chia cho 0 nếu batch rỗng (dù hiếm)
         count_vision = 0
@@ -161,7 +161,7 @@ class ERAlign(nn.Module):
                     stu_prob = self.compute_spectral_prob(stu_feat)
                     tea_prob = self.compute_spectral_prob(tea_feat)
                     
-                    loss_vision_kld += self.kld_loss_with_resize(stu_prob, tea_prob)
+                    loss_vision_eigen_rank += self.wasserstein_1d_loss(stu_prob, tea_prob)
                     count_vision += 1
 
                     # --- Text (Multimedia case) ---
@@ -182,7 +182,7 @@ class ERAlign(nn.Module):
                     stu_text_prob = self.compute_spectral_prob(last_stu_text_hidden_state)
                     tea_text_prob = self.compute_spectral_prob(last_tea_text_hidden_state)
                     
-                    loss_text_kld += self.kld_loss_with_resize(stu_text_prob, tea_text_prob)
+                    loss_text_eigen_rank += self.wasserstein_1d_loss(stu_text_prob, tea_text_prob)
                     count_text += 1
 
                     cur_idx_qry_img += 1
@@ -203,7 +203,7 @@ class ERAlign(nn.Module):
                 stu_text_prob = self.compute_spectral_prob(last_stu_text_hidden_state)
                 tea_text_prob = self.compute_spectral_prob(last_tea_text_hidden_state)
                 
-                loss_text_kld += self.kld_loss_with_resize(stu_text_prob, tea_text_prob)
+                loss_text_eigen_rank += self.wasserstein_1d_loss(stu_text_prob, tea_text_prob)
                 count_text += 1
 
             # 2. POSITIVE Processing (Tương tự Query)
@@ -216,7 +216,7 @@ class ERAlign(nn.Module):
                     stu_prob = self.compute_spectral_prob(stu_feat_pos)
                     tea_prob = self.compute_spectral_prob(tea_feat_pos)
 
-                    loss_vision_kld += self.kld_loss_with_resize(stu_prob, tea_prob)
+                    loss_vision_eigen_rank += self.wasserstein_1d_loss(stu_prob, tea_prob)
                     count_vision += 1
 
                     # --- Text ---
@@ -237,7 +237,7 @@ class ERAlign(nn.Module):
                     stu_text_prob = self.compute_spectral_prob(last_stu_text_hidden_state)
                     tea_text_prob = self.compute_spectral_prob(last_tea_text_hidden_state)
 
-                    loss_text_kld += self.kld_loss_with_resize(stu_text_prob, tea_text_prob)
+                    loss_text_eigen_rank += self.wasserstein_1d_loss(stu_text_prob, tea_text_prob)
                     count_text += 1
 
                     cur_idx_pos_img += 1
@@ -258,19 +258,16 @@ class ERAlign(nn.Module):
                 stu_text_prob = self.compute_spectral_prob(last_stu_text_hidden_state)
                 tea_text_prob = self.compute_spectral_prob(last_tea_text_hidden_state)
 
-                loss_text_kld += self.kld_loss_with_resize(stu_text_prob, tea_text_prob)
+                loss_text_eigen_rank += self.wasserstein_1d_loss(stu_text_prob, tea_text_prob)
                 count_text += 1
 
-        # Normalize losses
         if count_vision > 0:
-            loss_vision_kld = loss_vision_kld / count_vision
+            loss_vision_eigen_rank = loss_vision_eigen_rank / count_vision
         
         if count_text > 0:
-            loss_text_kld = loss_text_kld / count_text
+            loss_text_eigen_rank = loss_text_eigen_rank / count_text
         
-        # Tổng hợp loss
-        # Có thể cân nhắc weight: vision quan trọng thì để 1.0, text 1.0 hoặc 0.5 tùy task
-        loss_distill = 0.5 * loss_vision_kld + 0.5 * loss_text_kld
+        loss_distill = 0.5 * loss_vision_eigen_rank + 0.5 * loss_text_eigen_rank
 
         loss = contrastive_loss + self.kd_loss_weight * loss_distill
 
