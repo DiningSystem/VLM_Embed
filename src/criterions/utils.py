@@ -6,6 +6,27 @@ from src.model.processor import LLAVA_NEXT, QWEN2_VL, PHI3V, print_master, QWEN2
     QWEN2_VL_TOKENSELECTION, backbone2model, GME, VLM_IMAGE_TOKENS, LamRA, \
     COLPALI, INTERN_VL3, LLAVA_ONEVISION, LLAVA_QWEN2
 
+def count_clean_text_tokens(inputs, special_ids_list):
+    """
+    Đếm số lượng token hợp lệ:
+    1. Giá trị token phải >= 0 (loại bỏ -200, -100...)
+    2. Giá trị token không nằm trong special_ids_list (loại bỏ CLS, SEP...)
+    """
+    input_ids = inputs['input_ids']
+    
+    if not isinstance(special_ids_list, torch.Tensor):
+        # Nếu special_ids_list là list python thường, chuyển thành tensor
+        special_ids_tensor = torch.tensor(special_ids_list, device=input_ids.device)
+    else:
+        # Nếu đã là tensor, đảm bảo cùng device
+        special_ids_tensor = special_ids_list.to(input_ids.device)
+
+    valid_index_mask = input_ids >= 0 
+    content_mask = ~torch.isin(input_ids, special_ids_tensor)
+
+    final_mask = valid_index_mask & content_mask
+
+    return final_mask.sum(dim=1)
 
 def get_hidden_text_vision(hidden_state, num_text_token, num_vision_token, attention_mask):
     '''

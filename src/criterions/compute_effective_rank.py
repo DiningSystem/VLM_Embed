@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.distributed as dist
 import torch.nn.functional as F
 from torch import Tensor
-from .utils import get_hidden_text_vision, get_hidden_text
+from .utils import count_clean_text_tokens, get_hidden_text_vision, get_hidden_text
 
 class EffectiveRankLoss(nn.Module):
     def __init__(self, args):
@@ -135,15 +135,11 @@ class EffectiveRankLoss(nn.Module):
         student_special_ids = torch.tensor(student_tokenizer.all_special_ids, device=student_qry_input['input_ids'].device)
         teacher_special_ids = torch.tensor(teacher_tokenizer.all_special_ids, device=teacher_qry_input['input_ids'].device)
 
-        num_student_text_qry_tokens = (~torch.isin(student_qry_input['input_ids'], 
-                                                   student_special_ids)).sum(dim=1)
-        num_student_text_pos_tokens = (~torch.isin(student_pos_input['input_ids'], 
-                                                   student_special_ids)).sum(dim=1)
+        num_student_text_qry_tokens = count_clean_text_tokens(student_qry_input, student_special_ids)
+        num_student_text_pos_tokens = count_clean_text_tokens(student_pos_input, student_special_ids)
 
-        num_teacher_text_qry_tokens = (~torch.isin(teacher_qry_input['input_ids'], 
-                                                   teacher_special_ids)).sum(dim=1)
-        num_teacher_text_pos_tokens = (~torch.isin(teacher_pos_input['input_ids'], 
-                                                   teacher_special_ids)).sum(dim=1)
+        num_teacher_text_qry_tokens = count_clean_text_tokens(teacher_qry_input, teacher_special_ids)
+        num_teacher_text_pos_tokens = count_clean_text_tokens(teacher_pos_input, teacher_special_ids)
         
         loss_vision_er = 0.0
         loss_last_text_er = 0.0
