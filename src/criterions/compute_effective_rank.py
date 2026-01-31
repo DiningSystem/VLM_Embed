@@ -124,8 +124,6 @@ class EffectiveRankLoss(nn.Module):
         target = torch.arange(scores.size(0), device=scores.device, dtype=torch.long)
         target = target * (all_student_qry_reps.size(0) // all_student_pos_reps.size(0))
         contrastive_loss = nn.CrossEntropyLoss()(scores / self.distiller.temperature, target)
-        
-        alpha = distiller.student_hidden_dim / distiller.teacher_hidden_dim
 
         loss_distill = 0.0
 
@@ -151,8 +149,8 @@ class EffectiveRankLoss(nn.Module):
                 if cur_idx_qry_img < len(student_qry_image_features) and cur_idx_qry_img < len(teacher_qry_image_features):
                     stu_feat = student_qry_image_features[cur_idx_qry_img]
                     tea_feat = teacher_qry_image_features[cur_idx_qry_img]
-                    loss_vision_er += nn.L1Loss()(self.compute_effective_rank(stu_feat), 
-                                                  self.compute_effective_rank(tea_feat) * alpha)
+                    # loss_vision_er += nn.L1Loss()(self.compute_effective_rank(stu_feat), 
+                    #                               self.compute_effective_rank(tea_feat) * alpha)
 
                     last_stu_text_hidden_state, _ = get_hidden_text_vision(
                         student_qry_hidden_states[-1][i],
@@ -170,7 +168,7 @@ class EffectiveRankLoss(nn.Module):
 
                     loss_last_text_er += nn.L1Loss()(
                         self.compute_effective_rank(last_stu_text_hidden_state),
-                        self.compute_effective_rank(last_tea_text_hidden_state) * alpha
+                        self.compute_effective_rank(last_tea_text_hidden_state)
                     )
 
                     cur_idx_qry_img += 1
@@ -190,7 +188,7 @@ class EffectiveRankLoss(nn.Module):
 
                 loss_last_text_er += nn.L1Loss()(
                     self.compute_effective_rank(last_stu_text_hidden_state),
-                    self.compute_effective_rank(last_tea_text_hidden_state) * alpha
+                    self.compute_effective_rank(last_tea_text_hidden_state)
                 )
 
             if student_pos_image_features is not None and teacher_pos_image_features is not None:
@@ -198,8 +196,8 @@ class EffectiveRankLoss(nn.Module):
                     stu_feat_pos = student_pos_image_features[cur_idx_pos_img]
                     tea_feat_pos = teacher_pos_image_features[cur_idx_pos_img]
 
-                    loss_vision_er += nn.L1Loss()(self.compute_effective_rank(stu_feat_pos), 
-                                                  self.compute_effective_rank(tea_feat_pos) * alpha)
+                    # loss_vision_er += nn.L1Loss()(self.compute_effective_rank(stu_feat_pos), 
+                    #                               self.compute_effective_rank(tea_feat_pos))
 
                     last_stu_text_hidden_state, _ = get_hidden_text_vision(
                         student_pos_hidden_states[-1][i],
@@ -217,7 +215,7 @@ class EffectiveRankLoss(nn.Module):
 
                     loss_last_text_er += nn.L1Loss()(
                         self.compute_effective_rank(last_stu_text_hidden_state),
-                        self.compute_effective_rank(last_tea_text_hidden_state) * alpha
+                        self.compute_effective_rank(last_tea_text_hidden_state)
                     )
 
                     cur_idx_pos_img += 1
@@ -237,13 +235,13 @@ class EffectiveRankLoss(nn.Module):
 
                 loss_last_text_er += nn.L1Loss()(
                     self.compute_effective_rank(last_stu_text_hidden_state),
-                    self.compute_effective_rank(last_tea_text_hidden_state) * alpha
+                    self.compute_effective_rank(last_tea_text_hidden_state)
                 )
 
-        loss_vision_er = loss_vision_er / (cur_idx_qry_img + cur_idx_pos_img + 1e-8)
+        # loss_vision_er = loss_vision_er / (cur_idx_qry_img + cur_idx_pos_img + 1e-8)
         loss_last_text_er = loss_last_text_er / (2*batch_size + 1e-8)
         
-        loss_distill = 0.5* loss_vision_er + 0.5* loss_last_text_er
+        loss_distill = loss_last_text_er
 
         loss = contrastive_loss + self.kd_loss_weight * loss_distill
 
