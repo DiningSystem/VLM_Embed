@@ -13,6 +13,7 @@ class LearnedPoolingLoss(nn.Module):
         self.vision_weight = 0.6
         self.reg_weight = 1e-4
         self.q_learn = LearnedPooler(1024)
+        self.temp_rel = 0.1
         if dist.is_initialized():
             self.world_size = dist.get_world_size()
             self.process_rank = dist.get_rank()
@@ -73,11 +74,16 @@ class LearnedPoolingLoss(nn.Module):
         q_student_qry = self.q_learn(all_student_qry_hidden_states[-1],student_qry_input['attention_mask'])
         q_student_pos = self.q_learn(all_student_pos_hidden_states[-1],student_pos_input['attention_mask'])
 
-        mse_qry = F.mse_loss(q_student_qry, q_teacher_qry, reduction='mean')
-        mse_pos = F.mse_loss(q_student_pos, q_teacher_pos, reduction='mean')
+        sim_s_qry = torch.matmul(q_student_qry, q_student_qry.t()) / self.temp_rel
+        sim_t_qry = torch.matmul(q_teacher_qry, q_teacher_qry.t()) / self.temp_rel
+        mse_qry = F.mse_loss(sim_s_qry, sim_t_qry, reduction='mean')
+
+        sim_s_pos = torch.matmul(q_student_pos, q_student_pos.t()) / self.temp_rel
+        sim_t_pos = torch.matmul(q_teacher_pos, q_teacher_pos.t()) / self.temp_rel
+        mse_pos = F.mse_loss(sim_s_pos, sim_t_pos, reduction='mean')
 
 
         return {
-            'learned_pooling_loss': mse_qry + mse_pos,
+            'learned_pooling_loss': 0.5* (mse_qry + mse_pos),
         }
         
