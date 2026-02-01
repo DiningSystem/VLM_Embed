@@ -2,28 +2,29 @@ import torch
 import torch.nn as nn
 
 class LearnedPooler(nn.Module):
-    def __init__(self, hidden_dim, num_latents=1, num_heads=8):
+    def __init__(self, hidden_dim, proj_dim=1024, num_latents=1, num_heads=8):
         super().__init__()
         self.num_latents = num_latents
         self.hidden_dim = hidden_dim
-        
+        self.proj = nn.Linear(hidden_dim, proj_dim)
+        self.norm = nn.LayerNorm(proj_dim)
         # The Learnable Latent Queries
         
-        self.latent_queries = nn.Parameter(torch.randn(1, num_latents, hidden_dim))
+        self.latent_queries = nn.Parameter(torch.randn(1, num_latents, proj_dim))
         
         # Cross-Attention Layer
         # batch_first=True ensures inputs are (Batch, Seq, Dim)
         self.cross_attention = nn.MultiheadAttention(
-            embed_dim=hidden_dim, 
+            embed_dim=proj_dim, 
             num_heads=num_heads, 
             batch_first=True
         )
         
         
         self.mlp = nn.Sequential(
-            nn.Linear(hidden_dim, hidden_dim),
+            nn.Linear(proj_dim, proj_dim),
             nn.Tanh(),
-            nn.Linear(hidden_dim, hidden_dim)
+            nn.Linear(proj_dim, proj_dim)
         )
 
     def forward(self, vlm_hidden_states, attention_mask=None):
@@ -31,6 +32,8 @@ class LearnedPooler(nn.Module):
         vlm_hidden_states: (Batch, Seq_Len, Dim) - Output from the VLM
         attention_mask: (Batch, Seq_Len) - Standard padding mask (0 for padding)
         """
+        hidden_states = self.proj(vlm_hidden_states)
+        hidden_states = self.norm(hidden_states)
         batch_size = vlm_hidden_states.size(0)
         
         # Expand latents to match batch size: (Batch, Num_Latents, Dim)
@@ -45,8 +48,8 @@ class LearnedPooler(nn.Module):
         
         pooled_output, _ = self.cross_attention(
             query=latents,
-            key=vlm_hidden_states,
-            value=vlm_hidden_states,
+            key=hidden_states,
+            value=hidden_states,
             key_padding_mask=key_padding_mask
         )
         
