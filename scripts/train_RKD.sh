@@ -24,10 +24,10 @@ torchrun --nproc_per_node=$NUM_GPUS_PER_NODE $TRAIN_SCRIPT \
     --subset_name "ImageNet_1K" "N24News" "HatefulMemes" "VOC2007" "SUN397" \
     --dataset_split "original" \
     --image_dir "vlm2vec_train/MMEB-train" \
-    --output_dir "training/RKD" \
-    --per_device_train_batch_size 8 \
+    --output_dir "training/FastVLM-0.5B_RKD" \
+    --per_device_train_batch_size 16 \
     --gradient_accumulation_steps 1 \
-    --learning_rate 1e-5 \
+    --learning_rate 1e-4 \
     --num_train_epochs 1 \
     --bf16 \
     --save_total_limit 2 \
