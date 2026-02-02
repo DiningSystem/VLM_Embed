@@ -181,11 +181,12 @@ class EffectiveRankLoss(nn.Module):
                         teacher_qry_input['attention_mask'][i]
                     )
 
-                    alpha = last_stu_hidden_state.size(0) / last_tea_hidden_state.size(0)
+                    alpha1 = last_stu_hidden_state.size(0)
+                    alpha2 = last_tea_hidden_state.size(0)
 
                     loss_distill += nn.L1Loss()(
-                        self.compute_effective_rank(last_stu_hidden_state),
-                        self.compute_effective_rank(last_tea_hidden_state) * alpha
+                        self.compute_effective_rank(last_stu_hidden_state) / alpha1,
+                        self.compute_effective_rank(last_tea_hidden_state) / alpha2
                     ) 
 
                     cur_idx_qry_img += 1
@@ -208,11 +209,12 @@ class EffectiveRankLoss(nn.Module):
                 #     self.compute_effective_rank(last_tea_text_hidden_state)
                 # )
                 
-                alpha = last_stu_text_hidden_state.size(0) / last_tea_text_hidden_state.size(0)
+                alpha1 = last_stu_text_hidden_state.size(0)
+                alpha2 = last_tea_text_hidden_state.size(0)
 
                 loss_distill += nn.L1Loss()(
-                    self.compute_effective_rank(last_stu_text_hidden_state),
-                    self.compute_effective_rank(last_tea_text_hidden_state) * alpha
+                    self.compute_effective_rank(last_stu_text_hidden_state) / alpha1,
+                    self.compute_effective_rank(last_tea_text_hidden_state) / alpha2
                 )
 
             if student_pos_image_features is not None and teacher_pos_image_features is not None:
@@ -256,11 +258,12 @@ class EffectiveRankLoss(nn.Module):
                         teacher_pos_input['attention_mask'][i]
                     )
 
-                    alpha = last_stu_hidden_state.size(0) / last_tea_hidden_state.size(0)
+                    alpha1 = last_stu_hidden_state.size(0)
+                    alpha2 = last_tea_hidden_state.size(0)
 
                     loss_distill += nn.L1Loss()(
-                        self.compute_effective_rank(last_stu_hidden_state),
-                        self.compute_effective_rank(last_tea_hidden_state) * alpha
+                        self.compute_effective_rank(last_stu_hidden_state) / alpha1,
+                        self.compute_effective_rank(last_tea_hidden_state) / alpha2
                     )
 
                     cur_idx_pos_img += 1
@@ -283,11 +286,12 @@ class EffectiveRankLoss(nn.Module):
                 #     self.compute_effective_rank(last_tea_text_hidden_state)
                 # )
 
-                alpha = last_stu_text_hidden_state.size(0) / last_tea_text_hidden_state.size(0)
+                alpha1 = last_stu_text_hidden_state.size(0)
+                alpha2 = last_tea_text_hidden_state.size(0)
 
                 loss_distill += nn.L1Loss()(
-                    self.compute_effective_rank(last_stu_text_hidden_state),
-                    self.compute_effective_rank(last_tea_text_hidden_state) * alpha
+                    self.compute_effective_rank(last_stu_text_hidden_state) / alpha1,
+                    self.compute_effective_rank(last_tea_text_hidden_state) / alpha2
                 )
 
         # loss_vision_er = loss_vision_er / (cur_idx_qry_img + cur_idx_pos_img + 1e-8)
