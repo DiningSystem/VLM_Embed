@@ -1,5 +1,5 @@
 import torch
-
+import torch.nn.functional as F
 
 def _effective_rank(H, ridge: float = 1e-4, eps=1e-6):
     """
@@ -51,8 +51,10 @@ def compute_effective_rank_loss(
     """
 
     # hidden dimensions
-    D_S = H_S_v_g.shape[-1]
-    D_T = H_T_v_g.shape[-1]
+    D_S = H_S_v_g.shape[1]
+    D_T = H_T_v_g.shape[1]
+
+    B = H_S_v_g.shape[0]
 
     alpha = D_S / D_T
 
@@ -64,9 +66,20 @@ def compute_effective_rank_loss(
     r_S_t = _effective_rank(H_S_t_g)
     r_T_t = _effective_rank(H_T_t_g)
 
-    loss_rank = (
-        torch.abs(r_S_v - alpha * r_T_v)
-        + torch.abs(r_S_t - alpha * r_T_t)
+    loss_v = F.smooth_l1_loss(
+        r_S_v,
+        alpha * r_T_v.detach(),
+        reduction="none"
     )
 
+    loss_t = F.smooth_l1_loss(
+        r_S_t,
+        alpha * r_T_t.detach(),
+        reduction="none"
+    )
+
+    loss_rank = (loss_v + loss_t).mean()
+
     return loss_rank
+
+    
