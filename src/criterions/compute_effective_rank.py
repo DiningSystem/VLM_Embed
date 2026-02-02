@@ -64,7 +64,7 @@ class EffectiveRankLoss(nn.Module):
         prob = eigvals.clamp(min=eps)
         
         # Entropy H(K) = -sum(lambda_i * log(lambda_i)) [cite: 92, 95]
-        entropy = -(prob * torch.log(prob)).sum()
+        entropy = -(prob * torch.log(prob + eps)).sum()
         
         # 7. Effective Rank = exp(H) [cite: 87, 90]
         effective_rank = torch.exp(entropy)
@@ -129,6 +129,7 @@ class EffectiveRankLoss(nn.Module):
         student_special_ids = torch.tensor(student_tokenizer.all_special_ids, device=student_qry_input['input_ids'].device)
         teacher_special_ids = torch.tensor(teacher_tokenizer.all_special_ids, device=teacher_qry_input['input_ids'].device)
 
+        
         num_student_text_qry_tokens = count_clean_text_tokens(student_qry_input, student_special_ids)
         num_student_text_pos_tokens = count_clean_text_tokens(student_pos_input, student_special_ids)
 
@@ -145,48 +146,51 @@ class EffectiveRankLoss(nn.Module):
                 if cur_idx_qry_img < len(student_qry_image_features) and cur_idx_qry_img < len(teacher_qry_image_features):
                     stu_feat = student_qry_image_features[cur_idx_qry_img]
                     tea_feat = teacher_qry_image_features[cur_idx_qry_img]
-                    # loss_vision_er += nn.L1Loss()(self.compute_effective_rank(stu_feat), 
-                    #                               self.compute_effective_rank(tea_feat) * alpha)
+                    alpha = stu_feat.size(0)/tea_feat.size(0)
+                    loss_vision_er += 0.2*nn.L1Loss()(self.compute_effective_rank(stu_feat), 
+                                                   self.compute_effective_rank(tea_feat) * alpha)
 
-                    # last_stu_text_hidden_state, _ = get_hidden_text_vision(
-                    #     student_qry_hidden_states[-1][i],
-                    #     num_student_text_qry_tokens[i].item(),
-                    #     stu_feat.size(0),
-                    #     student_qry_input['attention_mask'][i]
-                    # )
-
-                    # last_tea_text_hidden_state, _ = get_hidden_text_vision(
-                    #     teacher_qry_hidden_states[-1][i],
-                    #     num_teacher_text_qry_tokens[i].item(),
-                    #     tea_feat.size(0),
-                    #     teacher_qry_input['attention_mask'][i]
-                    # )
-
-                    # loss_last_text_er += nn.L1Loss()(
-                    #     self.compute_effective_rank(last_stu_text_hidden_state),
-                    #     self.compute_effective_rank(last_tea_text_hidden_state)
-                    # )
-
-                    last_stu_hidden_state = get_unpadded_hidden(
+                    last_stu_text_hidden_state, _ = get_hidden_text_vision(
                         student_qry_hidden_states[-1][i],
                         num_student_text_qry_tokens[i].item(),
                         stu_feat.size(0),
                         student_qry_input['attention_mask'][i]
                     )
 
-                    last_tea_hidden_state = get_unpadded_hidden(
+                    last_tea_text_hidden_state, _ = get_hidden_text_vision(
                         teacher_qry_hidden_states[-1][i],
                         num_teacher_text_qry_tokens[i].item(),
                         tea_feat.size(0),
                         teacher_qry_input['attention_mask'][i]
                     )
 
-                    alpha = last_stu_hidden_state.size(0) / last_tea_hidden_state.size(0)
+                    alpha = last_stu_text_hidden_state.size(0) / last_tea_text_hidden_state.size(0)
 
-                    loss_distill += nn.L1Loss()(
-                        self.compute_effective_rank(last_stu_hidden_state),
-                        self.compute_effective_rank(last_tea_hidden_state) * alpha
-                    ) 
+                    loss_last_text_er += 0.8*nn.L1Loss()(
+                        self.compute_effective_rank(last_stu_text_hidden_state),
+                        self.compute_effective_rank(last_tea_text_hidden_state) * alpha
+                    )
+
+                    # last_stu_hidden_state = get_unpadded_hidden(
+                    #     student_qry_hidden_states[-1][i],
+                    #     num_student_text_qry_tokens[i].item(),
+                    #     stu_feat.size(0),
+                    #     student_qry_input['attention_mask'][i]
+                    # )
+
+                    # last_tea_hidden_state = get_unpadded_hidden(
+                    #     teacher_qry_hidden_states[-1][i],
+                    #     num_teacher_text_qry_tokens[i].item(),
+                    #     tea_feat.size(0),
+                    #     teacher_qry_input['attention_mask'][i]
+                    # )
+
+                    # alpha = last_stu_hidden_state.size(0) / last_tea_hidden_state.size(0)
+
+                    # loss_distill += nn.L1Loss()(
+                    #     self.compute_effective_rank(last_stu_hidden_state),
+                    #     self.compute_effective_rank(last_tea_hidden_state) * alpha
+                    # ) 
 
                     cur_idx_qry_img += 1
             # no vision tokens
@@ -220,48 +224,50 @@ class EffectiveRankLoss(nn.Module):
                     stu_feat_pos = student_pos_image_features[cur_idx_pos_img]
                     tea_feat_pos = teacher_pos_image_features[cur_idx_pos_img]
 
-                    # loss_vision_er += nn.L1Loss()(self.compute_effective_rank(stu_feat_pos), 
-                    #                               self.compute_effective_rank(tea_feat_pos))
+                    loss_vision_er += nn.L1Loss()(self.compute_effective_rank(stu_feat_pos), 
+                                                  self.compute_effective_rank(tea_feat_pos))
 
-                    # last_stu_text_hidden_state, _ = get_hidden_text_vision(
-                    #     student_pos_hidden_states[-1][i],
-                    #     num_student_text_pos_tokens[i].item(),
-                    #     stu_feat_pos.size(0),
-                    #     student_pos_input['attention_mask'][i]
-                    # )
-
-                    # last_tea_text_hidden_state, _ = get_hidden_text_vision(
-                    #     teacher_pos_hidden_states[-1][i],
-                    #     num_teacher_text_pos_tokens[i].item(),
-                    #     tea_feat_pos.size(0),
-                    #     teacher_pos_input['attention_mask'][i]
-                    # )
-
-                    # loss_last_text_er += nn.L1Loss()(
-                    #     self.compute_effective_rank(last_stu_text_hidden_state),
-                    #     self.compute_effective_rank(last_tea_text_hidden_state)
-                    # )
-
-                    last_stu_hidden_state = get_unpadded_hidden(
+                    last_stu_text_hidden_state, _ = get_hidden_text_vision(
                         student_pos_hidden_states[-1][i],
                         num_student_text_pos_tokens[i].item(),
                         stu_feat_pos.size(0),
                         student_pos_input['attention_mask'][i]
                     )
 
-                    last_tea_hidden_state = get_unpadded_hidden(
+                    last_tea_text_hidden_state, _ = get_hidden_text_vision(
                         teacher_pos_hidden_states[-1][i],
                         num_teacher_text_pos_tokens[i].item(),
                         tea_feat_pos.size(0),
                         teacher_pos_input['attention_mask'][i]
                     )
 
-                    alpha = last_stu_hidden_state.size(0) / last_tea_hidden_state.size(0)
+                    alpha = last_stu_text_hidden_state.size(0) / last_tea_text_hidden_state.size(0)
 
-                    loss_distill += nn.L1Loss()(
-                        self.compute_effective_rank(last_stu_hidden_state),
-                        self.compute_effective_rank(last_tea_hidden_state) * alpha
+                    loss_last_text_er += 0.8*nn.L1Loss()(
+                        self.compute_effective_rank(last_stu_text_hidden_state),
+                        self.compute_effective_rank(last_tea_text_hidden_state) * alpha
                     )
+
+                    # last_stu_hidden_state = get_unpadded_hidden(
+                    #     student_pos_hidden_states[-1][i],
+                    #     num_student_text_pos_tokens[i].item(),
+                    #     stu_feat_pos.size(0),
+                    #     student_pos_input['attention_mask'][i]
+                    # )
+
+                    # last_tea_hidden_state = get_unpadded_hidden(
+                    #     teacher_pos_hidden_states[-1][i],
+                    #     num_teacher_text_pos_tokens[i].item(),
+                    #     tea_feat_pos.size(0),
+                    #     teacher_pos_input['attention_mask'][i]
+                    # )
+
+                    # alpha = last_stu_hidden_state.size(0) / last_tea_hidden_state.size(0)
+
+                    # loss_distill += nn.L1Loss()(
+                    #     self.compute_effective_rank(last_stu_hidden_state),
+                    #     self.compute_effective_rank(last_tea_hidden_state) * alpha
+                    # )
 
                     cur_idx_pos_img += 1
             # no vision tokens
@@ -295,7 +301,7 @@ class EffectiveRankLoss(nn.Module):
         
         # loss_distill = loss_last_text_er
 
-        loss_distill = loss_distill / (2*batch_size)
+        loss_distill = (loss_vision_er + loss_last_text_er) / (2*batch_size + 1e-8)
 
         loss = contrastive_loss + self.kd_loss_weight * loss_distill
 
