@@ -42,4 +42,4 @@ torchrun --nproc_per_node=$NUM_GPUS_PER_NODE $TRAIN_SCRIPT \
     --kd_weight 0.3 \
     --kd_loss_type "effective_rank_loss" \
     --image_resolution "low" \
-    --report_to none 
+    --report_to wandb 
