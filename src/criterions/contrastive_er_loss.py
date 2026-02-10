@@ -3,9 +3,9 @@ import torch.nn as nn
 import torch.distributed as dist
 import torch.nn.functional as F
 
-class ContrastiveLoss(nn.Module):
+class ContrastiveERLoss(nn.Module):
     def __init__(self, args):
-        super(ContrastiveLoss, self).__init__()
+        super(ContrastiveERLoss, self).__init__()
         self.args = args
         if dist.is_initialized():
             self.world_size = dist.get_world_size()
