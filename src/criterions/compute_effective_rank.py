@@ -228,8 +228,8 @@ class EffectiveRankLoss(nn.Module):
         tea_er_qry = self.compute_effective_rank(all_teacher_qry_reps)
         tea_er_pos = self.compute_effective_rank(all_teacher_pos_reps)
 
-        loss_distill = 0.5 * (F.leaky_relu(tea_er_qry - stu_er_qry, self.kd_loss_weight) + 
-                              F.leaky_relu(tea_er_pos - stu_er_pos, self.kd_loss_weight))
+        loss_distill = 0.5 * (F.relu(tea_er_qry - stu_er_qry) + 
+                              F.relu(tea_er_pos - stu_er_pos))
 
         # loss_distill = loss_distill / (2*batch_size)
 
