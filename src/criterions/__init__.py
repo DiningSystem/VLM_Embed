@@ -17,6 +17,7 @@ from .vision_encoder_kd_loss import VisionEncoderLoss
 from .kl_cosine_distill import kl_cosine_distill
 from .compute_effective_rank import EffectiveRankLoss
 from .contrastive_pooling_loss import ContrastivePoolingLoss
+from .mps_loss import MPSLoss
 
 criterion_list = {
     "contrastive": ContrastiveLoss,
@@ -39,6 +40,7 @@ criterion_list = {
     "effective_rank_loss": EffectiveRankLoss,
     "eigen_rank_align_loss": ERAlign,
     "contrastive_pooling_loss": ContrastivePoolingLoss,
+    "mps_loss": MPSLoss,
 }
 
 def build_criterion(args):

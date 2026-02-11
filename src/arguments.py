@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 from transformers import TrainingArguments
-from typing import List
+from typing import List, Optional
 
 
 @dataclass
@@ -119,6 +119,15 @@ class TrainingArguments(TrainingArguments):
         metadata={"help": "List of split layers for student; number of elements equals number of projectors"}   
     )
     w_cross_modal_loss: float = field(default=1.0, metadata={"help": "weight for cross modal loss"})
+    # MPS (Manifold Projection Synergy) 2-epoch training
+    mps_recon_weight: float = field(default=0.5, metadata={"help": "weight for MPS reconstruction loss (train RedundancyEstimator)"})
+    mps_recon_loss_type: str = field(default="mse", metadata={"help": "MPS recon loss type: mse or cosine"})
+    mps_synergy_weight: float = field(default=1.0, metadata={"help": "weight for MPS synergy (direction) loss"})
+    mps_magnitude_weight: float = field(default=0.1, metadata={"help": "weight for MPS magnitude loss"})
+    mps_orthogonality_weight: float = field(default=0.5, metadata={"help": "weight for MPS orthogonality constraint"})
+    mps_freeze_teacher_estimator: bool = field(default=True, metadata={"help": "freeze teacher RedundancyEstimator"})
+    mps_lr: Optional[float] = field(default=None, metadata={"help": "learning rate for MPS modules; None = use learning_rate"})
+
 @dataclass
 class MTEBArguments:
     device: str = field(default="cuda", metadata={"help": "use cuda for single GPU inference, if multiple GPUs are available it will use DP automatically"})

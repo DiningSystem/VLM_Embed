@@ -241,8 +241,60 @@ class Distiller(nn.Module):
                 "lr": self.training_args.learning_rate
             })
             print("Modality gated pooling parameters added to optimizer.")
+        # Add MPS modules to optimizer if they exist
+        if hasattr(self, 'mps_student') and self.mps_student is not None:
+            mps_lr = getattr(self.training_args, "mps_lr", None) or self.training_args.learning_rate
+            optimizer.add_param_group({
+                "params": self.mps_student.parameters(),
+                "lr": mps_lr
+            })
+            print("MPS Student parameters added to optimizer.")
+        if hasattr(self, 'mps_teacher') and self.mps_teacher is not None:
+            # Teacher MPS thường bị đóng băng, nhưng vẫn thêm vào để đảm bảo
+            if any(p.requires_grad for p in self.mps_teacher.parameters()):
+                mps_lr = getattr(self.training_args, "mps_lr", None) or self.training_args.learning_rate
+                optimizer.add_param_group({
+                    "params": [p for p in self.mps_teacher.parameters() if p.requires_grad],
+                    "lr": mps_lr
+                })
+                print("MPS Teacher parameters added to optimizer.")
         return optimizer
-    
+
+    def set_mps_phase(self, phase: int):
+        """
+        Chuyển phase train MPS 2-epoch:
+        - phase 0 (epoch 1): Chỉ train RedundancyEstimator — freeze student encoder & projectors,
+          chỉ mps_student.redundancy_estimator requires_grad=True.
+        - phase 1 (epoch 2): Đóng băng RedundancyEstimator, train các loss còn lại —
+          freeze mps_student.redundancy_estimator, unfreeze student encoder & projectors.
+        """
+        if phase == 0:
+            # Epoch 1: chỉ train RedundancyEstimator
+            for p in self.student.parameters():
+                p.requires_grad = False
+            if hasattr(self, 'projectors') and self.projectors is not None:
+                for p in self.projectors.parameters():
+                    p.requires_grad = False
+            if hasattr(self, 'mps_student') and self.mps_student is not None:
+                for p in self.mps_student.redundancy_estimator.parameters():
+                    p.requires_grad = True
+                # Các phần khác của mps_student (nếu có) giữ nguyên
+            from src.utils import print_rank
+            print_rank("[MPS] Phase 0: only RedundancyEstimator trainable.")
+        else:
+            # Epoch 2: đóng băng RedundancyEstimator, train còn lại
+            for p in self.student.parameters():
+                p.requires_grad = True
+            if hasattr(self, 'projectors') and self.projectors is not None:
+                for p in self.projectors.parameters():
+                    p.requires_grad = True
+            if hasattr(self, 'mps_student') and self.mps_student is not None:
+                for p in self.mps_student.redundancy_estimator.parameters():
+                    p.requires_grad = False
+            from src.utils import print_rank
+            print_rank("[MPS] Phase 1: RedundancyEstimator frozen, rest trainable.")
+
+
 class DistillationCollator:
     def __init__(self, student_processor: ProcessorMixin, teacher_processor: ProcessorMixin,
                  model_args: ModelArguments, data_args: DataArguments, training_args: TrainingArguments,
