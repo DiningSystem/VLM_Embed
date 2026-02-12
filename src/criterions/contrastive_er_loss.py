@@ -71,7 +71,7 @@ class ContrastiveERLoss(nn.Module):
         er_qry = self.compute_effective_rank(all_qry_reps)
         er_pos = self.compute_effective_rank(all_pos_reps)
 
-        ER_MIN = 0.8 # 0.8
+        ER_MIN = 0.7 # 0.7
         er_reg = (
             F.relu(ER_MIN - er_qry) +
             F.relu(ER_MIN - er_pos)
