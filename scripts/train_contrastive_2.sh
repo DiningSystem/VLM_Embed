@@ -40,6 +40,6 @@ torchrun --nproc_per_node=$NUM_GPUS_PER_NODE $TRAIN_SCRIPT \
     --lr_scheduler_type "cosine" \
     --warmup_ratio 0.03 \
     --kd_weight 0.1 \
-    --kd_loss_type "effective_rank_loss" \
+    --kd_loss_type "contrastive_2" \
     --image_resolution "low" \
     --report_to none 
