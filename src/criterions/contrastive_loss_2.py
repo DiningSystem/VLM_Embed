@@ -78,5 +78,4 @@ class ContrastiveLoss2(nn.Module):
         return {
             'loss': contrastive_loss,
             'contrastive_loss': contrastive_loss,
-            'kd_loss': 0.0,
         }
