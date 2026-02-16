@@ -31,8 +31,8 @@ torchrun --nproc_per_node=$NUM_GPUS_PER_NODE \
     --subset_name "${SUBSETS[@]}" \
     --dataset_split "original" \
     --image_dir "vlm2vec_train/MMEB-train" \
-    --output_dir "training/FastVLM-0.5B_base" \
-    --per_device_train_batch_size 8 \
+    --output_dir "training/FastVLM-0.5B_base_0.01_er" \
+    --per_device_train_batch_size 16 \
     --gradient_accumulation_steps 1 \
     --learning_rate 1e-4 \
     --num_train_epochs 1 \
@@ -45,6 +45,7 @@ torchrun --nproc_per_node=$NUM_GPUS_PER_NODE \
     --normalize True \
     --lr_scheduler_type "cosine" \
     --warmup_ratio 0.03 \
-    --kd_loss_type "contrastive" \
+    --kd_weight 0.01 \
+    --kd_loss_type "contrastive_er" \
     --image_resolution "low" \
     --report_to "none" 

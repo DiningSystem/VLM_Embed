@@ -9,3 +9,4 @@ training/
 wandb/
 eval_images/
 MMEB-eval_outputs/
+ER_outputs/

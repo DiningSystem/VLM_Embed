@@ -400,11 +400,6 @@ class DistillationDataset(Dataset):
             if (not stu_qry_text and not stu_qry_image) or (not stu_pos_text and not stu_pos_image):
                 print("empty inputs")
                 continue
-            
-            student_qry_texts.append(stu_qry_text)
-            student_qry_images.append(stu_qry_image)
-            student_pos_texts.append(stu_pos_text)
-            student_pos_images.append(stu_pos_image)
 
             teacher_qry_text, teacher_pos_text = qry_text, pos_text
             if teacher_backbone != PHI3V:
@@ -416,6 +411,12 @@ class DistillationDataset(Dataset):
             if (not teacher_qry_text and not teacher_qry_image) or (not teacher_pos_text and not teacher_pos_image):
                 print("empty inputs")
                 continue
+
+            student_qry_texts.append(stu_qry_text)
+            student_qry_images.append(stu_qry_image)
+            student_pos_texts.append(stu_pos_text)
+            student_pos_images.append(stu_pos_image)
+
             teacher_qry_texts.append(teacher_qry_text)
             teacher_qry_images.append(teacher_qry_image)
             teacher_pos_texts.append(teacher_pos_text)

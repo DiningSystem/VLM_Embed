@@ -1,5 +1,7 @@
 from src.criterions.contrastive_kd_loss import ContrastiveKDLoss
 from src.criterions.contrastive_loss import ContrastiveLoss
+from src.criterions.contrastive_er_loss import ContrastiveERLoss
+from src.criterions.contrastive_loss_2 import ContrastiveLoss2
 from src.criterions.eigen_rank_align import ERAlign
 from src.criterions.vision_RKD import VisionRKDLoss
 from .contrastive_loss_with_RKD import ContrastiveLossWithRKD
@@ -20,6 +22,8 @@ from .contrastive_pooling_loss import ContrastivePoolingLoss
 
 criterion_list = {
     "contrastive": ContrastiveLoss,
+    "contrastive_2": ContrastiveLoss2,
+    "contrastive_er": ContrastiveERLoss,
     "contrastive_rkd": ContrastiveLossWithRKD,
     "proposal_dtw": ProposalLossWithDTW,
     "universal_logit": UniversalLogitDistillation,

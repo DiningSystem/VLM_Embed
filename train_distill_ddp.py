@@ -26,6 +26,34 @@ from transformers import AutoConfig, AutoProcessor, AutoTokenizer, HfArgumentPar
 from transformers.integrations import HfDeepSpeedConfig
 # Todo
 
+import random
+import numpy as np
+
+def seed_everything(seed: int, rank: int = 0):
+    seed = seed + rank  # quan trọng trong DDP
+
+    os.environ["PYTHONHASHSEED"] = str(seed)
+
+    random.seed(seed)
+    np.random.seed(seed)
+
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+
+    # Nếu bạn muốn deterministic (chậm hơn, đôi khi lỗi với một số ops)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+
+    # Bắt buộc với một số ops CUDA mới (matmul, conv...)
+    os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
+    torch.use_deterministic_algorithms(True)
+
+def seed_worker(worker_id):
+    worker_seed = torch.initial_seed() % 2**32
+    np.random.seed(worker_seed)
+    random.seed(worker_seed)
+
 def get_optimizer_params(model, training_args):
     param_optimizer = list(model.named_parameters())
     optimizer_grouped_parameters = [
@@ -308,10 +336,12 @@ def main():
     data_args: DataArguments
     training_args: TrainingArguments
     
+    rank = dist.get_rank()
+    seed_everything(training_args.seed, rank=rank) 
     
     distiller = Distiller(model_args, training_args)
     train_dataset = prepare_dataset(data_args, model_args)
-    dist_sampler = DistributedSampler(train_dataset, shuffle=True)
+    dist_sampler = DistributedSampler(train_dataset, shuffle=True, seed=training_args.seed)
     for n, p in distiller.student.named_parameters():
         if p.requires_grad:  # thường chỉ là LoRA
             p.data = p.data.to(torch.bfloat16)
