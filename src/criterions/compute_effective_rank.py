@@ -33,7 +33,7 @@ class EffectiveRankLoss(nn.Module):
     ) -> torch.Tensor:
         X = hidden_state.float() 
         N = X.size(0)
-        s = torch.linalg.svdvals(X) / torch.sqrt(torch.tensor(N))
+        s = torch.linalg.svdvals(X) / torch.sqrt(torch.tensor(N-1))
         eigvals = s * s 
         prob = eigvals.clamp(min=eps) / eigvals.sum()        
         entropy = -(prob * torch.log(prob)).sum()
@@ -119,7 +119,7 @@ class EffectiveRankLoss(nn.Module):
                 if cur_idx_qry_img < len(student_qry_image_features) and cur_idx_qry_img < len(teacher_qry_image_features):
                     stu_feat_qry = student_qry_image_features[cur_idx_qry_img]
                     tea_feat_qry = teacher_qry_image_features[cur_idx_qry_img]
-                    loss_vision_er += nn.L1Loss()(self.compute_effective_rank(stu_feat_qry), 
+                    loss_vision_er += nn.SmoothL1Loss()(self.compute_effective_rank(stu_feat_qry), 
                                                   self.compute_effective_rank(tea_feat_qry))
 
                     last_stu_text_hidden_state, _ = get_hidden_text_vision(
@@ -136,7 +136,7 @@ class EffectiveRankLoss(nn.Module):
                         teacher_qry_input['attention_mask'][i]
                     )
 
-                    loss_last_text_er += nn.L1Loss()(
+                    loss_last_text_er += nn.SmoothL1Loss()(
                         self.compute_effective_rank(last_stu_text_hidden_state),
                         self.compute_effective_rank(last_tea_text_hidden_state)
                     )
@@ -156,7 +156,7 @@ class EffectiveRankLoss(nn.Module):
                     teacher_qry_input['attention_mask'][i]
                 )
 
-                loss_last_text_er += nn.L1Loss()(
+                loss_last_text_er += nn.SmoothL1Loss()(
                     self.compute_effective_rank(last_stu_text_hidden_state),
                     self.compute_effective_rank(last_tea_text_hidden_state) 
                 )
@@ -166,7 +166,7 @@ class EffectiveRankLoss(nn.Module):
                     stu_feat_pos = student_pos_image_features[cur_idx_pos_img]
                     tea_feat_pos = teacher_pos_image_features[cur_idx_pos_img]
 
-                    loss_vision_er += nn.L1Loss()(self.compute_effective_rank(stu_feat_pos), 
+                    loss_vision_er += nn.SmoothL1Loss()(self.compute_effective_rank(stu_feat_pos), 
                                                   self.compute_effective_rank(tea_feat_pos))
 
                     last_stu_text_hidden_state, _ = get_hidden_text_vision(
@@ -183,7 +183,7 @@ class EffectiveRankLoss(nn.Module):
                         teacher_pos_input['attention_mask'][i]
                     )
 
-                    loss_last_text_er += nn.L1Loss()(
+                    loss_last_text_er += nn.SmoothL1Loss()(
                         self.compute_effective_rank(last_stu_text_hidden_state),
                         self.compute_effective_rank(last_tea_text_hidden_state) 
                     )
@@ -203,7 +203,7 @@ class EffectiveRankLoss(nn.Module):
                     teacher_pos_input['attention_mask'][i]
                 )
 
-                loss_last_text_er += nn.L1Loss()(
+                loss_last_text_er += nn.SmoothL1Loss()(
                     self.compute_effective_rank(last_stu_text_hidden_state),
                     self.compute_effective_rank(last_tea_text_hidden_state)
                 )
