@@ -103,6 +103,7 @@ class TrainingArguments(TrainingArguments):
     rkd_distance_weight: float = field(default=1.0, metadata={"help": "weight of distance loss in total kd loss"})
     rkd_angle_weight: float = field(default=2.0, metadata={"help": "weight of angle loss in total kd loss"})
     kd_loss_type: str = field(default="contrastive_rkd", metadata={"help": "type of kd loss, current only support RKD"})
+    eos_projection_space: str = field(default="student", metadata={"help": "alignment space for eos_attention_kl_loss: student or teacher"})
     ds_config: str = field(default=None, metadata={"help": "DeepSpeed config json file path"})
     deepspeed_config: str = field(default=None, metadata={"help": "DeepSpeed config json file path"})
     # new args for span loss
