@@ -51,9 +51,7 @@ torchrun --nproc_per_node=$NUM_GPUS_PER_NODE \
     --kd_loss_type "eos_attention_kl_loss" \
     --eos_projection_space "${EOS_PROJECTION_SPACE}" \
     --image_resolution "low" \
-    --projector_config_path "./config/projector_config_emo.json" \
-    --projector_lr 5e-5 \
     --ddp_find_unused_parameters True \
     --projector_config_path "./config/projector_config.json" \
     --projector_lr 5e-5 \
-    --report_to wandb
+    --report_to None
