@@ -159,6 +159,15 @@ class EOSAttentionKLLoss(nn.Module):
             f"Invalid eos_projection_space='{self.projection_space}'. Use 'student' or 'teacher'."
         )
 
+    def _touch_all_projectors(self, reference: torch.Tensor):
+        if not hasattr(self.distiller, "projectors") or self.distiller.projectors is None:
+            return reference.new_zeros(())
+
+        touched = reference.new_zeros(())
+        for param in self.distiller.projectors.parameters():
+            touched = touched + (param.reshape(-1)[:1].float().sum() * 0.0).to(reference.dtype)
+        return touched
+
     def _kl_from_cosines(self, teacher_anchor: torch.Tensor, student_swap: torch.Tensor):
         teacher_prob = F.softmax(teacher_anchor / self.distiller.temperature, dim=0)
         student_prob = F.softmax(student_swap / self.distiller.temperature, dim=0)
@@ -283,7 +292,12 @@ class EOSAttentionKLLoss(nn.Module):
         )
 
         kd_loss = 0.5 * (qry_kd_loss + pos_kd_loss)
-        loss = contrastive_loss + self.kd_loss_weight * kd_loss
+
+        # Keep all projector params connected to the graph so DDP does not fail
+        # on ranks where some projectors are not selected by this criterion.
+        projector_graph_anchor = self._touch_all_projectors(contrastive_loss)
+
+        loss = contrastive_loss + self.kd_loss_weight * kd_loss + projector_graph_anchor
 
         return {
             "loss": loss,
