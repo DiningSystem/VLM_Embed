@@ -176,11 +176,20 @@ class Distiller(nn.Module):
             self.projectors = nn.ModuleDict()
             projector_config = json.load(open(self.model_args.projector_config_path, 'r'))
             
+            activation_dict = {
+                "relu": nn.ReLU,
+                "gelu": nn.GELU,
+                "silu": nn.SiLU,
+                "tanh": nn.Tanh,
+                "identity": nn.Identity,
+            }
+
             name_dict = {
                 "s": self.student_hidden_dim,
                 "t": self.teacher_hidden_dim,
-                "relu": nn.ReLU()
             }
+            for act_name, act_cls in activation_dict.items():
+                name_dict[act_name] = act_cls()
             
             for name, cfg in projector_config.items():
                 if not cfg.get("enabled", False):
@@ -190,22 +199,22 @@ class Distiller(nn.Module):
                 parsed = []
                 
                 for p in parts:
-                    if p == "relu":
-                        parsed.append("relu")
+                    if p in activation_dict:
+                        parsed.append(p)
                     else:
                         coef = int(p[:-1]) if len(p) > 1 and p[:-1].isdigit() else 1
                         parsed.append(coef * name_dict[p[-1]])
-                for i in range(len(parsed) -1):
-                    a, b = parsed[i], parsed[i+1]
+                for i in range(len(parsed) - 1):
+                    a, b = parsed[i], parsed[i + 1]
                     if isinstance(a, int) and isinstance(b, int):
                         layer = nn.Linear(a, b)
                         create_semi_orthogonal_matrix(layer.weight)
                         layer = layer.to(dtype=torch.bfloat16)
                         seq.append(layer)
-                    elif b == "relu":
+                    elif isinstance(a, int) and isinstance(b, str) and b in activation_dict:
                         seq.append(name_dict[b])
-                    elif a =="relu" and isinstance(b, int):
-                        prev_out = parsed[i-1] if isinstance(parsed[i-1], int) else None
+                    elif isinstance(a, str) and a in activation_dict and isinstance(b, int):
+                        prev_out = parsed[i - 1] if isinstance(parsed[i - 1], int) else None
                         layer = nn.Linear(prev_out, b)
                         create_semi_orthogonal_matrix(layer.weight)
                         layer = layer.to(dtype=torch.bfloat16)
