@@ -46,4 +46,5 @@ torchrun --standalone \
     --kd_loss_type "grad_pooling" \
     --image_resolution "low" \
     --projector_config_path "./config/projector_config.json" \
-    --projector_lr 5e-5
+    --projector_lr 5e-5 \
+    --report_to wandb
