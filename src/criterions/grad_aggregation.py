@@ -108,6 +108,11 @@ class GradPoolingLoss(nn.Module):
         stu_pos_grads = torch.autograd.grad(stu_scores.sum(), student_pos_hidden_states[-2], retain_graph=True)[0] # [b, seq_len, hidden_dim]
         tea_pos_grads = torch.autograd.grad(tea_scores.sum(), teacher_pos_hidden_states[-2], retain_graph=True)[0] # [b, seq_len, hidden_dim]
 
+        stu_qry_grads = stu_qry_grads.detach()
+        tea_qry_grads = tea_qry_grads.detach()
+        stu_pos_grads = stu_pos_grads.detach()
+        tea_pos_grads = tea_pos_grads.detach()
+
         loss_distill = 0.0
 
         loss_vision = 0.0
