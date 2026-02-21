@@ -57,6 +57,9 @@ class GradPoolingLoss(nn.Module):
         
         batch_size = student_qry_input['input_ids'].size(0)
 
+        for p in teacher_model.encoder.lm_head.parameters():
+            p.requires_grad = True
+
         teacher_model.eval()
         teacher_qry_output = teacher_model.encode_input(teacher_qry_input)
         teacher_pos_output = teacher_model.encode_input(teacher_pos_input)
