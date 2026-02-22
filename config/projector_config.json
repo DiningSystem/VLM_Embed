@@ -9,6 +9,6 @@
     },
     "t2s":{
         "enabled": true,
-        "structure": "t-s"
+        "structure": "t-s-gelu"
     }
 }

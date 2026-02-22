@@ -33,7 +33,7 @@ class EffectiveRankLoss(nn.Module):
     ) -> torch.Tensor:
         X = hidden_state.float() 
         N = X.size(0)
-        s = torch.linalg.svdvals(X) / torch.sqrt(torch.tensor(N-1))
+        s = torch.linalg.svdvals(X) / torch.sqrt(torch.tensor(N))
         eigvals = s * s 
         prob = eigvals.clamp(min=eps) / eigvals.sum()        
         entropy = -(prob * torch.log(prob)).sum()
