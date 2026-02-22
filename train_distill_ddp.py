@@ -158,6 +158,7 @@ class Trainer:
         losses, contrastive_losses, kd_losses = [], [], []
         kd_rkd_losses, ot_losses, kd_dtw_losses = [], [], []
         kd_mse_losses, kd_penultimate_losses = [], []
+        eos_kd_losses, er_kd_losses = [], []
         span_losses, cross_modal_losses = [], []
         
         # Tính tổng số bước (steps) trong epoch để log step
@@ -179,6 +180,8 @@ class Trainer:
             kd_dtw_loss = loss_dict.get('kd_loss_dtw', torch.tensor(0.0))
             kd_mse_loss = loss_dict.get('kd_mse_loss', torch.tensor(0.0))
             kd_penultimate_loss = loss_dict.get('kd_penultimate_loss', torch.tensor(0.0))
+            eos_kd_loss = loss_dict.get('eos_kd_loss', torch.tensor(0.0))
+            er_kd_loss = loss_dict.get('er_kd_loss', torch.tensor(0.0))
 
             losses.append(loss.detach().item() * self.training_args.gradient_accumulation_steps)
             contrastive_losses.append(contrastive_loss.detach().item())
@@ -190,6 +193,8 @@ class Trainer:
             kd_dtw_losses.append(kd_dtw_loss.detach().item())
             kd_mse_losses.append(kd_mse_loss.detach().item())
             kd_penultimate_losses.append(kd_penultimate_loss.detach().item())
+            eos_kd_losses.append(eos_kd_loss.detach().item())
+            er_kd_losses.append(er_kd_loss.detach().item())
             
             batch_loss = sum(losses) / len(losses)
             batch_contrastive_loss = sum(contrastive_losses) / len(contrastive_losses)
@@ -201,6 +206,8 @@ class Trainer:
             batch_kd_dtw_loss = sum(kd_dtw_losses) / len(kd_dtw_losses)
             batch_kd_loss_mse = sum(kd_mse_losses) / len(kd_mse_losses)
             batch_kd_penultimate_loss = sum(kd_penultimate_losses) / len(kd_penultimate_losses)
+            batch_eos_kd_loss = sum(eos_kd_losses) / len(eos_kd_losses)
+            batch_er_kd_loss = sum(er_kd_losses) / len(er_kd_losses)
             
             loss.backward()
             if (batch_idx + 1) % self.training_args.gradient_accumulation_steps == 0:
@@ -212,6 +219,8 @@ class Trainer:
                     current_lr = self.lr_scheduler.get_last_lr()[0]
                     progress_bar.set_postfix({
                         'loss': f"{batch_loss:.4f}",
+                        'eos_kd_loss': f"{batch_eos_kd_loss:.4f}",
+                        'er_kd_loss': f"{batch_er_kd_loss:.4f}",
                         'kd_loss': f"{batch_kd_loss:.4f}",
                         'contrastive_loss': f"{batch_contrastive_loss:.4f}",
                         'kd_rkd_loss': f"{batch_kd_rkd_loss:.4f}",
@@ -230,6 +239,8 @@ class Trainer:
                         # Ở đây mình log loss trung bình tích lũy giống như progress bar
                         wandb.log({
                             "train/loss": batch_loss,
+                            "train/eos_kd_loss": batch_eos_kd_loss,
+                            "train/er_kd_loss": batch_er_kd_loss,
                             "train/kd_loss": batch_kd_loss,
                             "train/contrastive_loss": batch_contrastive_loss,
                             "train/kd_rkd_loss": batch_kd_rkd_loss,

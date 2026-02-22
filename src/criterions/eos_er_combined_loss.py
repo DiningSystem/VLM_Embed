@@ -318,12 +318,15 @@ class EOSERCombinedLoss(nn.Module):
         )
         er_loss = 0.5 * (er_qry_loss + er_pos_loss)
 
+        weighted_kd_loss = self.eos_kd_weight * eos_loss + self.er_kd_weight * er_loss
+
         projector_graph_anchor = self._touch_all_projectors(contrastive_loss)
-        loss = contrastive_loss + self.eos_kd_weight * eos_loss + self.er_kd_weight * er_loss + projector_graph_anchor
+        loss = contrastive_loss + weighted_kd_loss + projector_graph_anchor
 
         return {
             "loss": loss,
             "contrastive_loss": contrastive_loss,
+            "kd_loss": weighted_kd_loss,
             "eos_kd_loss": eos_loss,
             "er_kd_loss": er_loss,
         }
