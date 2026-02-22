@@ -9,7 +9,8 @@ EOS_KD_WEIGHT=0.3
 ER_KD_WEIGHT=0.3
 
 SUBSETS=(
-  "ImageNet_1K" "N24News" "HatefulMemes" "VOC2007" "SUN397"
+"OK-VQA" "A-OKVQA" "DocVQA" "InfographicsVQA" "ChartQA" "Visual7W"
+  #"ImageNet_1K" "N24News" "HatefulMemes" "VOC2007" "SUN397"
 )
 
 torchrun --nproc_per_node=$NUM_GPUS_PER_NODE \
@@ -30,7 +31,7 @@ torchrun --nproc_per_node=$NUM_GPUS_PER_NODE \
     --image_dir "vlm2vec_train/MMEB-train" \
     --percent_data 1.0 \
     --output_dir "training/eos_er_combined_${EOS_PROJECTION_SPACE}" \
-    --per_device_train_batch_size 8 \
+    --per_device_train_batch_size 16 \
     --gradient_accumulation_steps 1 \
     --learning_rate 1e-4 \
     --num_train_epochs 1 \
@@ -42,7 +43,7 @@ torchrun --nproc_per_node=$NUM_GPUS_PER_NODE \
     --weight_decay 0.01 \
     --normalize True \
     --teacher_normalize True \
-    --lr_scheduler_type "cosine" \
+    --lr_scheduler_type "constant" \
     --warmup_ratio 0.03 \
     --temperature "${TEMPERATURE}" \
     --kd_loss_type "eos_er_combined_loss" \
@@ -50,7 +51,7 @@ torchrun --nproc_per_node=$NUM_GPUS_PER_NODE \
     --eos_kd_weight "${EOS_KD_WEIGHT}" \
     --er_kd_weight "${ER_KD_WEIGHT}" \
     --image_resolution "low" \
-    --projector_config_path "./config/projector_config_emo.json" \
+    --projector_config_path "./config/projector_config.json" \
     --projector_lr 5e-5 \
     --ddp_find_unused_parameters True \
-    --report_to wandb
+    --report_to None

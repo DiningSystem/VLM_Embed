@@ -46,8 +46,8 @@ class EOSERCombinedLoss(nn.Module):
 
         projectors = self.distiller.projectors
         direction_to_keys = {
-            "s2t": ["s2t", "s2t_txt", "s2t_img", "proj_ST"],
-            "t2s": ["t2s", "t2s_txt", "t2s_img", "proj_TS", "proj_TI"],
+            "s2t": ["s2t"],
+            "t2s": ["t2s"],
         }
         preferred_keys = direction_to_keys[direction]
 
@@ -153,7 +153,7 @@ class EOSERCombinedLoss(nn.Module):
     def compute_effective_rank(self, hidden_state: torch.Tensor, eps: float = 1e-10):
         X = hidden_state.float()
         N = X.size(0)
-        s = torch.linalg.svdvals(X) / torch.sqrt(torch.tensor(N - 1, device=X.device, dtype=X.dtype))
+        s = torch.linalg.svdvals(X) / torch.sqrt(torch.tensor(N, device=X.device, dtype=X.dtype))
         eigvals = s * s
         prob = eigvals.clamp(min=eps) / eigvals.sum()
         entropy = -(prob * torch.log(prob)).sum()
