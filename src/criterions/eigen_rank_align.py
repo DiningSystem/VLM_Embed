@@ -134,8 +134,12 @@ class ERAlign(nn.Module):
         cur_idx_qry_img = 0
         cur_idx_pos_img = 0
 
-        student_special_ids = torch.tensor(student_tokenizer.all_special_ids, device=student_qry_input['input_ids'].device)
-        teacher_special_ids = torch.tensor(teacher_tokenizer.all_special_ids, device=teacher_qry_input['input_ids'].device)
+        student_special_ids = torch.tensor(list(student_tokenizer.added_tokens_encoder.values()) + 
+                                           student_tokenizer.all_special_ids, 
+                                           device=student_qry_input['input_ids'].device)
+        teacher_special_ids = torch.tensor(list(teacher_tokenizer.added_tokens_encoder.values()) + 
+                                           teacher_tokenizer.all_special_ids, 
+                                           device=teacher_qry_input['input_ids'].device)
 
         num_student_text_qry_tokens = count_clean_text_tokens(student_qry_input, student_special_ids)
         num_student_text_pos_tokens = count_clean_text_tokens(student_pos_input, student_special_ids)
