@@ -29,6 +29,12 @@ import deepspeed
 from transformers import AutoConfig, AutoProcessor, AutoTokenizer, HfArgumentParser
 from deepspeed.runtime.zero import GatheredParameters
 
+try:
+    import wandb
+    _HAS_WANDB = True
+except ImportError:
+    _HAS_WANDB = False
+
 
 def get_optimizer_params(model, training_args):
     while hasattr(model, "module"):
@@ -138,6 +144,31 @@ def finetune_mps(
     print_rank(f"model device: {next(model_engine.parameters()).device}")
     model_engine.train()
 
+    use_wandb = False
+    if _HAS_WANDB and dist.get_rank() == 0:
+        report_to = getattr(training_args, "report_to", None)
+        if report_to and ("wandb" in (report_to if isinstance(report_to, (list, tuple)) else [report_to])):
+            use_wandb = True
+            wandb.init(
+                project=getattr(training_args, "wandb_project", "vlm_embed_mps"),
+                name=getattr(training_args, "run_name", None) or training_args.output_dir,
+                config={
+                    "learning_rate": training_args.learning_rate,
+                    "per_device_train_batch_size": training_args.per_device_train_batch_size,
+                    "gradient_accumulation_steps": training_args.gradient_accumulation_steps,
+                    "num_train_epochs": training_args.num_train_epochs,
+                    "weight_decay": training_args.weight_decay,
+                    "lr_scheduler_type": training_args.lr_scheduler_type,
+                    "warmup_ratio": training_args.warmup_ratio,
+                    "kd_loss_type": getattr(training_args, "kd_loss_type", ""),
+                    "output_dir": training_args.output_dir,
+                },
+            )
+            if model_args.model_name:
+                wandb.config.update({"model_name": model_args.model_name})
+            if getattr(model_args, "teacher_model_name", None):
+                wandb.config.update({"teacher_model_name": model_args.teacher_model_name})
+
     logging_output = {
         "epoch": 0,
         "global_step": 0,
@@ -227,6 +258,19 @@ def finetune_mps(
                     "lr": f"{current_lr:.6f}" if current_lr is not None else "N/A",
                 })
                 progress_bar.update(1)
+                if use_wandb:
+                    log_dict = {
+                        "train/loss": batch_loss,
+                        "train/contrastive_loss": batch_contrastive,
+                        "train/kd_loss": batch_kd,
+                        "train/global_step": step,
+                        "train/epoch": epoch + 1,
+                    }
+                    if torch.is_tensor(recon_loss):
+                        log_dict["train/mps_recon_loss"] = recon_loss.item()
+                    if current_lr is not None:
+                        log_dict["train/lr"] = current_lr
+                    wandb.log(log_dict)
             epoch_step += 1
 
         if dist.get_rank() == 0:
@@ -237,6 +281,13 @@ def finetune_mps(
                 f"Epoch {epoch + 1} done. Avg Loss: {avg_epoch_loss:.4f} | "
                 f"Contrastive: {avg_contrastive:.4f} | KD: {avg_kd:.4f}"
             )
+            if use_wandb:
+                wandb.log({
+                    "epoch/avg_loss": avg_epoch_loss,
+                    "epoch/avg_contrastive_loss": avg_contrastive,
+                    "epoch/avg_kd_loss": avg_kd,
+                    "epoch/epoch": epoch + 1,
+                })
             if training_args.save_strategy == "epoch":
                 ckpt_dir = os.path.join(training_args.output_dir, f"checkpoint-epoch{epoch + 1}")
                 os.makedirs(ckpt_dir, exist_ok=True)
@@ -276,6 +327,11 @@ def finetune_mps(
                 AutoProcessor.from_pretrained(model_args.model_name).save_pretrained(final_ckpt_dir)
             except Exception as e:
                 print_rank(f"Warning saving final config/tokenizer/processor: {e}")
+    if use_wandb:
+        try:
+            wandb.finish()
+        except Exception as e:
+            print_rank(f"Warning: wandb.finish() failed: {e}")
     dist.barrier()
     return logging_output
 
