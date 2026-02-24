@@ -3,7 +3,7 @@
 #   Epoch 1: Chỉ train RedundancyEstimator (mps_recon_loss).
 #   Epoch 2: Đóng băng RedundancyEstimator, tắt mps_recon_loss; train synergy/magnitude/orthogonality + contrastive.
 
-export WANDB_API_KEY="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"
+export WANDB_API_KEY="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"
 
 NUM_GPUS=1
 TRAIN_SCRIPT="train_distillation_mps.py"
