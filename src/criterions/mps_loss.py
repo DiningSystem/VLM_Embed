@@ -193,6 +193,27 @@ class MPSLoss(nn.Module):
         
         return image_emb, text_emb, joint_emb
     
+    def _get_synergy_proj(self, distiller, device, dtype):
+        """
+        Trả về projector để chiếu student synergy (1536) → teacher space (3584).
+        Ưu tiên dùng projector đầu tiên của distiller (đã đăng ký, tương thích DeepSpeed/DDP).
+        Fallback: tạo Linear riêng và lưu vào distiller để tránh tạo lại mỗi bước.
+        """
+        if hasattr(distiller, 'projectors') and distiller.projectors is not None:
+            projs = distiller.projectors
+            if isinstance(projs, nn.ModuleDict):
+                first_proj = next(iter(projs.values()))
+            else:
+                first_proj = projs[0]
+            return first_proj
+
+        # Fallback: tạo Linear riêng và đăng ký vào distiller một lần
+        if not hasattr(distiller, '_synergy_proj'):
+            distiller._synergy_proj = nn.Linear(
+                self.student_hidden_dim, self.teacher_hidden_dim, bias=False
+            ).to(device=device, dtype=dtype)
+        return distiller._synergy_proj
+
     def forward(self, distiller, input_data):
         """
         Tính MPS Loss.
@@ -288,23 +309,33 @@ class MPSLoss(nn.Module):
         )
         
         # ========== LOSS CALCULATION ==========
-        
+
+        # Project student synergy → teacher space nếu dims khác nhau
+        # (student: 1536, teacher: 3584 — cần cùng space để so sánh cosine / magnitude)
+        if self.student_hidden_dim != self.teacher_hidden_dim:
+            synergy_proj = self._get_synergy_proj(distiller, device, student_qry_synergy.dtype)
+            student_qry_synergy_proj = synergy_proj(student_qry_synergy)
+            student_pos_synergy_proj = synergy_proj(student_pos_synergy)
+        else:
+            student_qry_synergy_proj = student_qry_synergy
+            student_pos_synergy_proj = student_pos_synergy
+
         # Loss 1: Cosine Similarity Loss (cùng hướng)
         qry_cosine_loss = 1 - F.cosine_similarity(
-            student_qry_synergy, teacher_qry_synergy, dim=-1
+            student_qry_synergy_proj, teacher_qry_synergy, dim=-1
         ).mean()
         pos_cosine_loss = 1 - F.cosine_similarity(
-            student_pos_synergy, teacher_pos_synergy, dim=-1
+            student_pos_synergy_proj, teacher_pos_synergy, dim=-1
         ).mean()
         synergy_loss = (qry_cosine_loss + pos_cosine_loss) / 2.0
         
-        # Loss 2: MSE Magnitude Loss (cùng độ lớn)
+        # Loss 2: MSE Magnitude Loss (cùng độ lớn, so sánh sau projection)
         qry_magnitude_loss = F.mse_loss(
-            torch.norm(student_qry_synergy, dim=-1),
+            torch.norm(student_qry_synergy_proj, dim=-1),
             torch.norm(teacher_qry_synergy, dim=-1)
         )
         pos_magnitude_loss = F.mse_loss(
-            torch.norm(student_pos_synergy, dim=-1),
+            torch.norm(student_pos_synergy_proj, dim=-1),
             torch.norm(teacher_pos_synergy, dim=-1)
         )
         magnitude_loss = (qry_magnitude_loss + pos_magnitude_loss) / 2.0
