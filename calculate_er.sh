@@ -10,7 +10,7 @@ SUBSETS=(
 #   "OK-VQA" "A-OKVQA" "DocVQA" "InfographicsVQA" "ChartQA"
 )
 
-MODEL="training/FastVLM-0.5B_base_ImageNet1K_ER=0.8/checkpoint-final"
+MODEL="training/FastVLM-0.5B_base_ImageNet1K_ER/checkpoint-final"
 # MODEL="raghavlite/B3_Qwen2_2B"
 
 # =========================================================================
@@ -27,7 +27,7 @@ python calculate_er.py \
     --subset_name "${SUBSETS[@]}" \
     --dataset_split "original" \
     --image_dir "/home/s/MinhNQN/VLM_Embed/vlm2vec_train/MMEB-train" \
-    --encode_output_path "./ER_outputs/FastVLM-0.5B_base_ImageNet1K_ER=0.8/" \
+    --encode_output_path "./ER_outputs/FastVLM-0.5B_base_ImageNet1K_ER/" \
     --per_device_train_batch_size 8 \
     --bf16 \
     --seed 42 \

@@ -94,6 +94,25 @@ def compute_effective_rank(
     effective_rank = torch.exp(entropy) / N
     return effective_rank.to(dtype=hidden_state.dtype)
 
+def get_unpadded_hidden(hidden_state, attention_mask):
+    outputs = []
+    for hs, mask in zip(hidden_state, attention_mask):
+        outputs.append(hs[mask.bool()])
+    return outputs
+
+def get_eranks(model, input):
+    attention_mask = input['attention_mask'] # [b, seq_len]
+    batch_size = attention_mask.size(0)
+    output = model.encode_input(input)
+    reps, image_features, attentions, hidden_states = output
+    last_unpadded_hidden = get_unpadded_hidden(hidden_states[-1], attention_mask)
+    image_feature_ers = []
+    hidden_state_ers = []
+    for i in range(batch_size):
+        image_feature_ers.append(compute_effective_rank(image_features[i]).item())
+        hidden_state_ers.append(compute_effective_rank(last_unpadded_hidden[i]).item())
+    return image_feature_ers, hidden_state_ers
+
 def main():
     for arg in sys.argv:
         if arg.startswith("--local-rank="):
@@ -154,11 +173,11 @@ def main():
         pin_memory=False,
     )
 
-    encode_qry_path = os.path.join(data_args.encode_output_path, f"er_qry")
-    encode_tgt_path = os.path.join(data_args.encode_output_path, f"er_tgt")
+    qry_hidden_ers = []
+    qry_image_feature_ers = []
+    pos_hidden_ers = []
+    pos_image_feature_ers = []
 
-    qry_er_list = []
-    pos_er_list = []
     for batch in tqdm(islice(train_dataloader, 1000), 
                       desc="Encoding for Effective Rank",
                       disable=not is_main_process, 
@@ -166,36 +185,55 @@ def main():
         batch = to_device(batch, training_args.device)
         with torch.no_grad():
             with torch.autocast(enabled=True, dtype=torch.bfloat16, device_type="cuda"):
-                qry_reps = model(qry=batch['qry'])["qry_reps"]
-                effective_rank = compute_effective_rank(qry_reps)
-                qry_er_list.append(effective_rank.item())
+                # qry_output = model.encode_input(batch['qry'])
+                image_feature_ers, hidden_state_ers = get_eranks(model, batch['qry'])
+                qry_image_feature_ers.extend(image_feature_ers)
+                qry_hidden_ers.extend(hidden_state_ers)
             # print_rank(f"Batch {batch_idx}: Qry Effective Rank = {effective_rank.item():.4f}")
         
         with torch.no_grad():
             with torch.autocast(enabled=True, dtype=torch.bfloat16, device_type="cuda"):
-                pos_reps = model(tgt=batch['pos'])["tgt_reps"]
-                effective_rank = compute_effective_rank(pos_reps)
-                pos_er_list.append(effective_rank.item())
+                # pos_output = model.encode_input(batch['pos'])
+                image_feature_ers, hidden_state_ers = get_eranks(model, batch['pos'])
+                pos_image_feature_ers.extend(image_feature_ers)
+                pos_hidden_ers.extend(hidden_state_ers)
             # print_rank(f"Batch {batch_idx}: Pos Effective Rank = {effective_rank.item():.4f}")
     
-    qry_er_mean = float(np.mean(qry_er_list))
-    pos_er_mean = float(np.mean(pos_er_list))
+    qry_hidden_ers_mean = np.mean(qry_hidden_ers)
+    qry_image_feature_ers_mean = np.mean(qry_image_feature_ers)
+    pos_hidden_ers_mean = np.mean(pos_hidden_ers)
+    pos_image_feature_ers_mean = np.mean(pos_image_feature_ers)
 
     if is_main_process:
-        print(f"[ER] qry mean = {qry_er_mean:.6f}")
-        print(f"[ER] pos mean = {pos_er_mean:.6f}")
+        print(f"Qry Hidden Effective Rank: {qry_hidden_ers_mean:.4f}")
+        print(f"Qry Image Feature Effective Rank: {qry_image_feature_ers_mean:.4f}")
+        print(f"Pos Hidden Effective Rank: {pos_hidden_ers_mean:.4f}")
+        print(f"Pos Image Feature Effective Rank: {pos_image_feature_ers_mean:.4f}")
+    
+        encode_qry_hidden_path = os.path.join(data_args.encode_output_path, f"qry_hidden_ers.json")
+        encode_qry_image_feature_path = os.path.join(data_args.encode_output_path, f"qry_image_feature_ers.json")
+        encode_pos_hidden_path = os.path.join(data_args.encode_output_path, f"pos_hidden_ers.json")
+        encode_pos_image_feature_path = os.path.join(data_args.encode_output_path, f"pos_image_feature_ers.json")
 
         # Lưu list (để vẽ histogram sau)
-        with open(encode_qry_path + ".json", "w", encoding="utf-8") as f:
-            json.dump(qry_er_list, f)
+        with open(encode_qry_hidden_path, "w", encoding="utf-8") as f:
+            json.dump(qry_hidden_ers, f)
 
-        with open(encode_tgt_path + ".json", "w", encoding="utf-8") as f:
-            json.dump(pos_er_list, f)
+        with open(encode_qry_image_feature_path, "w", encoding="utf-8") as f:
+            json.dump(qry_image_feature_ers, f)
+
+        with open(encode_pos_hidden_path, "w", encoding="utf-8") as f:
+            json.dump(pos_hidden_ers, f)
+
+        with open(encode_pos_image_feature_path, "w", encoding="utf-8") as f:
+            json.dump(pos_image_feature_ers, f)
 
         # Lưu mean riêng (txt)
         with open(os.path.join(data_args.encode_output_path, "er_mean.txt"), "w") as f:
-            f.write(f"qry_er_mean: {qry_er_mean}\n")
-            f.write(f"pos_er_mean: {pos_er_mean}\n")
+            f.write(f"qry_hidden_er_mean: {qry_hidden_ers_mean}\n")
+            f.write(f"qry_image_feature_er_mean: {qry_image_feature_ers_mean}\n")
+            f.write(f"pos_hidden_er_mean: {pos_hidden_ers_mean}\n")
+            f.write(f"pos_image_feature_er_mean: {pos_image_feature_ers_mean}\n")
     
 
 
