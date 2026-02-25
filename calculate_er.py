@@ -31,6 +31,7 @@ from src.utils import print_rank
 from src.model.processor import get_backbone_name, load_processor, COLPALI
 from torch.nn.utils.rnn import pad_sequence
 import shutil 
+import random
 
 def delete_pycache(root='.'):
     for dirpath, dirnames, filenames in os.walk(root):
@@ -45,6 +46,25 @@ def delete_pycache(root='.'):
                     pass
 delete_pycache()
 
+def seed_everything(seed: int, rank: int = 0):
+    seed = seed + rank  # quan trọng trong DDP
+
+    os.environ["PYTHONHASHSEED"] = str(seed)
+
+    random.seed(seed)
+    np.random.seed(seed)
+
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+
+    # Nếu bạn muốn deterministic (chậm hơn, đôi khi lỗi với một số ops)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+
+    # Bắt buộc với một số ops CUDA mới (matmul, conv...)
+    os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
+    torch.use_deterministic_algorithms(True)
 
 def prepare_dataset(data_args, model_args):
     dataset = SingleDataset(data_args, model_args)
@@ -94,24 +114,70 @@ def compute_effective_rank(
     effective_rank = torch.exp(entropy) / N
     return effective_rank.to(dtype=hidden_state.dtype)
 
-def get_unpadded_hidden(hidden_state, attention_mask):
-    outputs = []
-    for hs, mask in zip(hidden_state, attention_mask):
-        outputs.append(hs[mask.bool()])
-    return outputs
+def count_clean_text_tokens(inputs, special_ids_list):
+    """
+    Đếm số lượng token hợp lệ:
+    1. Giá trị token phải >= 0 (loại bỏ -200, -100...)
+    2. Giá trị token không nằm trong special_ids_list (loại bỏ CLS, SEP...)
+    """
+    input_ids = inputs['input_ids']
+    
+    if not isinstance(special_ids_list, torch.Tensor):
+        # Nếu special_ids_list là list python thường, chuyển thành tensor
+        special_ids_tensor = torch.tensor(special_ids_list, device=input_ids.device)
+    else:
+        # Nếu đã là tensor, đảm bảo cùng device
+        special_ids_tensor = special_ids_list.to(input_ids.device)
 
-def get_eranks(model, input):
+    valid_index_mask = input_ids >= 0 
+    content_mask = ~torch.isin(input_ids, special_ids_tensor)
+
+    final_mask = valid_index_mask & content_mask
+
+    return final_mask.sum(dim=1)
+
+def get_unpadded_hidden(hidden_state, num_text_token, num_vision_token, attention_mask):
+    '''
+    Get hidden states for unpadded tokens (both text and vision)
+    Args:
+        hidden_state: tensor, the output hidden states from the model
+        num_text_token: int, number of text tokens
+        num_vision_token: int, number of vision tokens
+        attention_mask: tensor, the attention mask indicating valid tokens # [Sequence length]
+        (note: only )
+    '''
+    left_padding = attention_mask[0] == 0 and attention_mask[-1] == 1
+    if left_padding:
+        unpadded_hidden_state = hidden_state[-(num_vision_token + num_text_token):, :]
+    else:
+        unpadded_hidden_state = hidden_state[: (num_vision_token + num_text_token), :]
+   
+    return unpadded_hidden_state
+
+def get_eranks(model, tokenizer, input):
     attention_mask = input['attention_mask'] # [b, seq_len]
     batch_size = attention_mask.size(0)
     output = model.encode_input(input)
     reps, image_features, attentions, hidden_states = output
-    last_unpadded_hidden = get_unpadded_hidden(hidden_states[-1], attention_mask)
+    special_ids = torch.tensor(list(tokenizer.added_tokens_encoder.values()) + 
+                                           tokenizer.all_special_ids, 
+                                           device=input['input_ids'].device)
+    text_tokens = count_clean_text_tokens(input, special_ids)
     image_feature_ers = []
     hidden_state_ers = []
+
     for i in range(batch_size):
+        num_vision_token = 0
         if image_features:
             image_feature_ers.append(compute_effective_rank(image_features[i]).item())
-        hidden_state_ers.append(compute_effective_rank(last_unpadded_hidden[i]).item())
+            num_vision_token = image_features[i].size(0)
+        last_unpadded_hidden = get_unpadded_hidden(
+            hidden_states[-1][i],
+            text_tokens[i].item(),
+            num_vision_token,
+            attention_mask[i]
+        )
+        hidden_state_ers.append(compute_effective_rank(last_unpadded_hidden).item())
     return image_feature_ers, hidden_state_ers
 
 def main():
@@ -123,6 +189,7 @@ def main():
             sys.argv.append(rank)
     parser = HfArgumentParser((ModelArguments, DataArguments, TrainingArguments))
     model_args, data_args, training_args = parser.parse_args_into_dataclasses()
+    seed_everything(training_args.seed) 
 
     hf_config = AutoConfig.from_pretrained(model_args.model_name, trust_remote_code=True)
     if not hasattr(model_args, "model_backbone") or not model_args.model_backbone:
@@ -187,7 +254,7 @@ def main():
         with torch.no_grad():
             with torch.autocast(enabled=True, dtype=torch.bfloat16, device_type="cuda"):
                 # qry_output = model.encode_input(batch['qry'])
-                image_feature_ers, hidden_state_ers = get_eranks(model, batch['qry'])
+                image_feature_ers, hidden_state_ers = get_eranks(model, processor.tokenizer, batch['qry'])
                 qry_image_feature_ers.extend(image_feature_ers)
                 qry_hidden_ers.extend(hidden_state_ers)
             # print_rank(f"Batch {batch_idx}: Qry Effective Rank = {effective_rank.item():.4f}")
@@ -195,7 +262,7 @@ def main():
         with torch.no_grad():
             with torch.autocast(enabled=True, dtype=torch.bfloat16, device_type="cuda"):
                 # pos_output = model.encode_input(batch['pos'])
-                image_feature_ers, hidden_state_ers = get_eranks(model, batch['pos'])
+                image_feature_ers, hidden_state_ers = get_eranks(model, processor.tokenizer, batch['pos'])
                 pos_image_feature_ers.extend(image_feature_ers)
                 pos_hidden_ers.extend(hidden_state_ers)
             # print_rank(f"Batch {batch_idx}: Pos Effective Rank = {effective_rank.item():.4f}")
