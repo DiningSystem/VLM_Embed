@@ -109,7 +109,8 @@ def get_eranks(model, input):
     image_feature_ers = []
     hidden_state_ers = []
     for i in range(batch_size):
-        image_feature_ers.append(compute_effective_rank(image_features[i]).item())
+        if image_features:
+            image_feature_ers.append(compute_effective_rank(image_features[i]).item())
         hidden_state_ers.append(compute_effective_rank(last_unpadded_hidden[i]).item())
     return image_feature_ers, hidden_state_ers
 
