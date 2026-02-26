@@ -154,6 +154,26 @@ def get_unpadded_hidden(hidden_state, num_text_token, num_vision_token, attentio
    
     return unpadded_hidden_state
 
+def get_hidden_text_vision(hidden_state, num_text_token, num_vision_token, attention_mask):
+    '''
+    Get hidden states for text and vision tokens separately
+    Args:
+        hidden_state: tensor, the output hidden states from the model
+        num_text_token: int, number of text tokens
+        num_vision_token: int, number of vision tokens
+        attention_mask: tensor, the attention mask indicating valid tokens # [Sequence length]
+        (note: only )
+    '''
+    left_padding = attention_mask[0] == 0 and attention_mask[-1] == 1
+    if left_padding:
+        vision_hidden_state = hidden_state[-(num_vision_token+num_text_token): -num_text_token, :]
+        text_hidden_state = hidden_state[-num_text_token:, :]
+    else:
+        vision_hidden_state = hidden_state[:num_vision_token, :]
+        text_hidden_state = hidden_state[num_vision_token: num_vision_token + num_text_token, :]
+   
+    return text_hidden_state, vision_hidden_state
+
 def get_eranks(model, tokenizer, input):
     attention_mask = input['attention_mask'] # [b, seq_len]
     batch_size = attention_mask.size(0)
@@ -171,7 +191,7 @@ def get_eranks(model, tokenizer, input):
         if image_features:
             image_feature_ers.append(compute_effective_rank(image_features[i]).item())
             num_vision_token = image_features[i].size(0)
-        last_unpadded_hidden = get_unpadded_hidden(
+        last_unpadded_hidden, _ = get_hidden_text_vision(
             hidden_states[-1][i],
             text_tokens[i].item(),
             num_vision_token,
