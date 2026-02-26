@@ -236,6 +236,12 @@ class EOSERCombinedLoss(nn.Module):
         if getattr(self, "teacher_processor", None) is None:
             self.teacher_processor = distiller.get_teacher_processor()
 
+        student_processor = self.student_processor
+        teacher_processor = self.teacher_processor
+
+        student_tokenizer = student_processor.tokenizer
+        teacher_tokenizer = teacher_processor.tokenizer
+
         student_qry_input = input_data["student_inputs"]["qry"]
         student_pos_input = input_data["student_inputs"]["pos"]
         teacher_qry_input = input_data["teacher_inputs"]["qry"]
@@ -268,9 +274,27 @@ class EOSERCombinedLoss(nn.Module):
         target = target * (all_student_qry_reps.size(0) // all_student_pos_reps.size(0))
         contrastive_loss = self.loss_fn(scores / self.distiller.temperature, target)
 
-        student_special_ids = torch.tensor(self.student_processor.tokenizer.all_special_ids, device=student_qry_input["input_ids"].device)
-        teacher_special_ids = torch.tensor(self.teacher_processor.tokenizer.all_special_ids, device=teacher_qry_input["input_ids"].device)
+        student_special_ids = torch.tensor(
+            list(
+                set(
+                    list(student_tokenizer.added_tokens_encoder.values()) +
+                    student_tokenizer.all_special_ids
+                )
+            ),
+            device=student_qry_input['input_ids'].device,
+            dtype=torch.long
+        )
 
+        teacher_special_ids = torch.tensor(
+            list(
+                set(
+                    list(teacher_tokenizer.added_tokens_encoder.values()) +
+                    teacher_tokenizer.all_special_ids
+                )
+            ),
+            device=teacher_qry_input['input_ids'].device,
+            dtype=torch.long
+        )
         num_student_text_qry_tokens = count_clean_text_tokens(student_qry_input, student_special_ids)
         num_student_text_pos_tokens = count_clean_text_tokens(student_pos_input, student_special_ids)
         num_teacher_text_qry_tokens = count_clean_text_tokens(teacher_qry_input, teacher_special_ids)
