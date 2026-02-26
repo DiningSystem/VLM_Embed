@@ -348,7 +348,7 @@ def main():
     training_args: TrainingArguments
     
     rank = dist.get_rank()
-    seed_everything(training_args.seed, rank=rank) 
+    #seed_everything(training_args.seed, rank=rank) 
     
     distiller = Distiller(model_args, training_args)
     train_dataset = prepare_dataset(data_args, model_args)
