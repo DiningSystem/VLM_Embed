@@ -179,9 +179,16 @@ def get_eranks(model, tokenizer, input):
     batch_size = attention_mask.size(0)
     output = model.encode_input(input)
     reps, image_features, attentions, hidden_states = output
-    special_ids = torch.tensor(set(list(tokenizer.added_tokens_encoder.values()) + 
-                                           tokenizer.all_special_ids), 
-                                           device=input['input_ids'].device)
+    special_ids = torch.tensor(
+        list(
+            set(
+                list(tokenizer.added_tokens_encoder.values()) +
+                tokenizer.all_special_ids
+            )
+        ),
+        device=input['input_ids'].device,
+        dtype=torch.long
+    )
     text_tokens = count_clean_text_tokens(input, special_ids)
     image_feature_ers = []
     hidden_state_ers = []
