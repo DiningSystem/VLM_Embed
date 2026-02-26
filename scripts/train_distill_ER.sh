@@ -5,11 +5,12 @@ NUM_GPUS_PER_NODE=1
 
 # Đường dẫn tới file script training của bạn
 TRAIN_SCRIPT="train_distill_ddp.py"
-
+#"OK-VQA" "A-OKVQA" "DocVQA" "InfographicsVQA" "ChartQA" "Visual7W"
+#"ImageNet_1K" "N24News" "HatefulMemes" "VOC2007" "SUN397"
 # =========================================================================
 # Dùng torchrun để khởi chạy
 # =========================================================================
-torchrun --nproc_per_node=$NUM_GPUS_PER_NODE $TRAIN_SCRIPT \
+torchrun --nproc_per_node=$NUM_GPUS_PER_NODE --master_port=29501 $TRAIN_SCRIPT \
     --model_name "apple/FastVLM-0.5B" \
     --teacher_model_name "raghavlite/B3_Qwen2_2B" \
     --lora True \
@@ -24,9 +25,9 @@ torchrun --nproc_per_node=$NUM_GPUS_PER_NODE $TRAIN_SCRIPT \
     --subset_name "ImageNet_1K" "N24News" "HatefulMemes" "VOC2007" "SUN397" \
     --dataset_split "original" \
     --image_dir "vlm2vec_train/MMEB-train" \
-    --output_dir "training/FastVLM-0.5B_smoothl1_vision_text_er" \
-    --per_device_train_batch_size 16 \
-    --gradient_accumulation_steps 1 \
+    --output_dir "training/vqa_smoothl1_vision_text_er06" \
+    --per_device_train_batch_size 8 \
+    --gradient_accumulation_steps 2 \
     --learning_rate 1e-4 \
     --num_train_epochs 1 \
     --bf16 \
@@ -37,9 +38,9 @@ torchrun --nproc_per_node=$NUM_GPUS_PER_NODE $TRAIN_SCRIPT \
     --weight_decay 0.01 \
     --normalize True \
     --teacher_normalize True \
-    --lr_scheduler_type "cosine" \
+    --lr_scheduler_type "constant" \
     --warmup_ratio 0.03 \
-    --kd_weight 0.3 \
+    --kd_weight 0.6 \
     --kd_loss_type "effective_rank_loss" \
     --image_resolution "low" \
-    --report_to wandb 
+    --report_to None 
