@@ -103,16 +103,22 @@ class EOSAttentionKLLoss(nn.Module):
 
         return pooled_text_reps, pooled_vision_reps
 
-    def _select_projector(self, direction: str):
+    def _select_projector(self, direction: str, modality: str):
         if not hasattr(self.distiller, "projectors") or self.distiller.projectors is None:
             return None
 
         projectors = self.distiller.projectors
         direction_to_keys = {
-            "s2t": ["s2t", "s2t_txt", "s2t_img", "proj_ST"],
-            "t2s": ["t2s", "t2s_txt", "t2s_img", "proj_TS", "proj_TI"],
+            "s2t": {
+                "text": ["s2t_txt", "s2t", "proj_ST"],
+                "vision": ["s2t_img", "s2t", "proj_SI", "proj_ST"],
+            },
+            "t2s": {
+                "text": ["t2s_txt"],
+                "vision": ["t2s_img"],
+            },
         }
-        preferred_keys = direction_to_keys[direction]
+        preferred_keys = direction_to_keys[direction][modality]
 
         if isinstance(projectors, nn.ModuleDict):
             for key in preferred_keys:
@@ -125,12 +131,12 @@ class EOSAttentionKLLoss(nn.Module):
 
         return None
 
-    def _align_modal_reps(self, teacher_rep: torch.Tensor, student_rep: torch.Tensor):
+    def _align_modal_reps(self, teacher_rep: torch.Tensor, student_rep: torch.Tensor, modality: str):
         if teacher_rep.size(-1) == student_rep.size(-1):
             return teacher_rep, student_rep
 
         if self.projection_space == "student":
-            projector = self._select_projector("t2s")
+            projector = self._select_projector("t2s", modality)
             if projector is None:
                 raise ValueError(
                     "Requested teacher->student alignment but no t2s projector is available in distiller.projectors."
@@ -143,7 +149,7 @@ class EOSAttentionKLLoss(nn.Module):
             return teacher_rep, student_rep
 
         if self.projection_space == "teacher":
-            projector = self._select_projector("s2t")
+            projector = self._select_projector("s2t", modality)
             if projector is None:
                 raise ValueError(
                     "Requested student->teacher alignment but no s2t projector is available in distiller.projectors."
@@ -180,8 +186,8 @@ class EOSAttentionKLLoss(nn.Module):
         student_text: torch.Tensor,
         student_vision: torch.Tensor,
     ):
-        aligned_teacher_text, aligned_student_text = self._align_modal_reps(teacher_text, student_text)
-        aligned_teacher_vision, aligned_student_vision = self._align_modal_reps(teacher_vision, student_vision)
+        aligned_teacher_text, aligned_student_text = self._align_modal_reps(teacher_text, student_text, modality="text")
+        aligned_teacher_vision, aligned_student_vision = self._align_modal_reps(teacher_vision, student_vision, modality="vision")
 
         teacher_anchor = F.cosine_similarity(aligned_teacher_vision, aligned_teacher_text, dim=-1)
 

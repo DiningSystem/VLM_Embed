@@ -40,16 +40,22 @@ class EOSERCombinedLoss(nn.Module):
             touched = touched + (param.reshape(-1)[:1].float().sum() * 0.0).to(reference.dtype)
         return touched
 
-    def _select_projector(self, direction: str):
+    def _select_projector(self, direction: str, modality: str):
         if not hasattr(self.distiller, "projectors") or self.distiller.projectors is None:
             return None
 
         projectors = self.distiller.projectors
         direction_to_keys = {
-            "s2t": ["s2t"],
-            "t2s": ["t2s"],
+            "s2t": {
+                "text": ["s2t_txt", "s2t", "proj_ST"],
+                "vision": ["s2t_img", "s2t", "proj_SI", "proj_ST"],
+            },
+            "t2s": {
+                "text": ["t2s_txt"],
+                "vision": ["t2s_img"],
+            },
         }
-        preferred_keys = direction_to_keys[direction]
+        preferred_keys = direction_to_keys[direction][modality]
 
         if isinstance(projectors, nn.ModuleDict):
             for key in preferred_keys:
@@ -62,25 +68,40 @@ class EOSERCombinedLoss(nn.Module):
 
         return None
 
-    def _align_modal_reps(self, teacher_rep: torch.Tensor, student_rep: torch.Tensor):
+    def _align_modal_reps(self, teacher_rep: torch.Tensor, student_rep: torch.Tensor, modality: str):
         if teacher_rep.size(-1) == student_rep.size(-1):
             return teacher_rep, student_rep
 
         if self.projection_space == "student":
-            projector = self._select_projector("t2s")
+            projector = self._select_projector("t2s", modality)
             if projector is None:
-                raise ValueError("Requested teacher->student alignment but no t2s projector is available.")
+                raise ValueError(
+                    "Requested teacher->student alignment but no t2s projector is available in distiller.projectors."
+                )
             teacher_rep = projector(teacher_rep)
+            if teacher_rep.size(-1) != student_rep.size(-1):
+                raise ValueError(
+                    f"Teacher projection did not match student dim ({teacher_rep.size(-1)} vs {student_rep.size(-1)})."
+                )
             return teacher_rep, student_rep
 
         if self.projection_space == "teacher":
-            projector = self._select_projector("s2t")
+            projector = self._select_projector("s2t", modality)
             if projector is None:
-                raise ValueError("Requested student->teacher alignment but no s2t projector is available.")
+                raise ValueError(
+                    "Requested student->teacher alignment but no s2t projector is available in distiller.projectors."
+                )
             student_rep = projector(student_rep)
+            if teacher_rep.size(-1) != student_rep.size(-1):
+                raise ValueError(
+                    f"Student projection did not match teacher dim ({student_rep.size(-1)} vs {teacher_rep.size(-1)})."
+                )
             return teacher_rep, student_rep
 
-        raise ValueError(f"Invalid eos_projection_space='{self.projection_space}'.")
+        raise ValueError(
+            f"Invalid eos_projection_space='{self.projection_space}'. Use 'student' or 'teacher'."
+        )
+
 
     def _attention_pool_with_eos(self, tokens: torch.Tensor, eos_rep: torch.Tensor):
         if tokens is None or tokens.size(0) == 0:
@@ -139,8 +160,8 @@ class EOSERCombinedLoss(nn.Module):
         return F.kl_div(student_prob.log(), teacher_prob, reduction="batchmean")
 
     def _pair_eos_loss(self, teacher_text, teacher_vision, student_text, student_vision):
-        aligned_teacher_text, aligned_student_text = self._align_modal_reps(teacher_text, student_text)
-        aligned_teacher_vision, aligned_student_vision = self._align_modal_reps(teacher_vision, student_vision)
+        aligned_teacher_text, aligned_student_text = self._align_modal_reps(teacher_text, student_text, modality="text")
+        aligned_teacher_vision, aligned_student_vision = self._align_modal_reps(teacher_vision, student_vision, modality="vision")
 
         teacher_anchor = F.cosine_similarity(aligned_teacher_vision, aligned_teacher_text, dim=-1)
         student_change_vision = F.cosine_similarity(aligned_student_vision, aligned_teacher_text.detach(), dim=-1)
