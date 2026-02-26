@@ -261,13 +261,13 @@ class EOSAttentionKLLoss(nn.Module):
             student_qry_input["attention_mask"],
             num_student_text_qry_tokens,
         )
-        student_pos_text, student_pos_vision = self._build_pooled_reps(
-            student_pos_reps,
-            student_pos_image_features,
-            student_pos_hidden_states,
-            student_pos_input["attention_mask"],
-            num_student_text_pos_tokens,
-        )
+        # student_pos_text, student_pos_vision = self._build_pooled_reps(
+        #     student_pos_reps,
+        #     student_pos_image_features,
+        #     student_pos_hidden_states,
+        #     student_pos_input["attention_mask"],
+        #     num_student_text_pos_tokens,
+        # )
 
         teacher_qry_text, teacher_qry_vision = self._build_pooled_reps(
             teacher_qry_reps,
@@ -276,13 +276,13 @@ class EOSAttentionKLLoss(nn.Module):
             teacher_qry_input["attention_mask"],
             num_teacher_text_qry_tokens,
         )
-        teacher_pos_text, teacher_pos_vision = self._build_pooled_reps(
-            teacher_pos_reps,
-            teacher_pos_image_features,
-            teacher_pos_hidden_states,
-            teacher_pos_input["attention_mask"],
-            num_teacher_text_pos_tokens,
-        )
+        # teacher_pos_text, teacher_pos_vision = self._build_pooled_reps(
+        #     teacher_pos_reps,
+        #     teacher_pos_image_features,
+        #     teacher_pos_hidden_states,
+        #     teacher_pos_input["attention_mask"],
+        #     num_teacher_text_pos_tokens,
+        # )
 
         qry_kd_loss = self._pair_kd_loss(
             teacher_qry_text,
@@ -290,14 +290,14 @@ class EOSAttentionKLLoss(nn.Module):
             student_qry_text,
             student_qry_vision,
         )
-        pos_kd_loss = self._pair_kd_loss(
-            teacher_pos_text,
-            teacher_pos_vision,
-            student_pos_text,
-            student_pos_vision,
-        )
+        # pos_kd_loss = self._pair_kd_loss(
+        #     teacher_pos_text,
+        #     teacher_pos_vision,
+        #     student_pos_text,
+        #     student_pos_vision,
+        # )
 
-        kd_loss = 0.5 * (qry_kd_loss + pos_kd_loss)
+        kd_loss = 1.0 * (qry_kd_loss) #+ pos_kd_loss)
 
         # Keep all projector params connected to the graph so DDP does not fail
         # on ranks where some projectors are not selected by this criterion.
