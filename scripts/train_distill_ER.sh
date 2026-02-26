@@ -37,7 +37,7 @@ torchrun --nproc_per_node=$NUM_GPUS_PER_NODE $TRAIN_SCRIPT \
     --weight_decay 0.01 \
     --normalize True \
     --teacher_normalize True \
-    --lr_scheduler_type "cosine" \
+    --lr_scheduler_type "constant" \
     --warmup_ratio 0.03 \
     --kd_weight 0.3 \
     --kd_loss_type "effective_rank_loss" \
