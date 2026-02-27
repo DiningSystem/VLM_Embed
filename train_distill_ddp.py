@@ -271,7 +271,7 @@ class Trainer:
                 if self.model_args.model_backbone in ["llava_onevision", "llava_two_vision"]:
                     torch.save(student.encoder.model.multi_modal_projector.state_dict(), projector_dir)
                 else:
-                    if hasattr(student.encoder.model, 'mm_projector'):
+                    if hasattr(student.encoder.model.model, 'mm_projector'):
                         torch.save(student.encoder.model.mm_projector.state_dict(), projector_dir)
 
                 student_config = AutoConfig.from_pretrained(self.model_args.model_name) if self.model_args.model_name else None
@@ -301,7 +301,7 @@ class Trainer:
             if self.model_args.model_backbone in ["llava_onevision", "llava_two_vision"]:
                 torch.save(student.encoder.model.multi_modal_projector.state_dict(), projector_dir)
             else:
-                if hasattr(student.encoder.model, 'mm_projector'):
+                if hasattr(student.encoder.model.model, 'mm_projector'):
                     torch.save(student.encoder.model.model.mm_projector.state_dict(), projector_dir)
             student_config = AutoConfig.from_pretrained(self.model_args.model_name) if self.model_args.model_name else None
             tokenizer = AutoTokenizer.from_pretrained(self.model_args.model_name) if self.model_args.model_name else None
