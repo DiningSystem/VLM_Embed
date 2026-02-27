@@ -10,7 +10,7 @@ TRAIN_SCRIPT="train_distill_ddp.py"
 # =========================================================================
 # Dùng torchrun để khởi chạy
 # =========================================================================
-torchrun --nproc_per_node=$NUM_GPUS_PER_NODE --master_port=29501 $TRAIN_SCRIPT \
+torchrun --nproc_per_node=$NUM_GPUS_PER_NODE $TRAIN_SCRIPT \
     --model_name "apple/FastVLM-0.5B" \
     --teacher_model_name "raghavlite/B3_Qwen2_2B" \
     --lora True \
@@ -25,9 +25,9 @@ torchrun --nproc_per_node=$NUM_GPUS_PER_NODE --master_port=29501 $TRAIN_SCRIPT \
     --subset_name "ImageNet_1K" "N24News" "HatefulMemes" "VOC2007" "SUN397" \
     --dataset_split "original" \
     --image_dir "vlm2vec_train/MMEB-train" \
-    --output_dir "training/vqa_smoothl1_vision_text_er06" \
-    --per_device_train_batch_size 8 \
-    --gradient_accumulation_steps 2 \
+    --output_dir "training/cls_smoothl1_vision_text_er06" \
+    --per_device_train_batch_size 16 \
+    --gradient_accumulation_steps 1 \
     --learning_rate 1e-4 \
     --num_train_epochs 1 \
     --bf16 \
@@ -43,4 +43,4 @@ torchrun --nproc_per_node=$NUM_GPUS_PER_NODE --master_port=29501 $TRAIN_SCRIPT \
     --kd_weight 0.6 \
     --kd_loss_type "effective_rank_loss" \
     --image_resolution "low" \
-    --report_to None 
+    --report_to wandb 
