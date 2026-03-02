@@ -10,5 +10,9 @@
     "t2s":{
         "enabled": true,
         "structure": "t-s"
+    },
+    "s2t_synergy": {
+        "enabled": true,
+        "structure": "s-t"
     }
 }

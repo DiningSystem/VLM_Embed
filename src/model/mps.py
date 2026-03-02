@@ -153,7 +153,8 @@ class MPSModule(nn.Module):
         self.image_dim = image_dim
         self.text_dim = text_dim
         self.joint_dim = joint_dim
-        self.hidden_dim = hidden_dim or max(image_dim, text_dim, joint_dim)
+        # hidden_dim phải >= image_dim + text_dim (concat input của RedundancyEstimator)
+        self.hidden_dim = hidden_dim or max(image_dim + text_dim, joint_dim)
         
         # Redundancy Estimator
         self.redundancy_estimator = RedundancyEstimator(

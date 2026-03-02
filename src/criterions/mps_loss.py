@@ -193,27 +193,6 @@ class MPSLoss(nn.Module):
         
         return image_emb, text_emb, joint_emb
     
-    def _get_synergy_proj(self, distiller, device, dtype):
-        """
-        Trả về projector để chiếu student synergy (1536) → teacher space (3584).
-        Ưu tiên dùng projector đầu tiên của distiller (đã đăng ký, tương thích DeepSpeed/DDP).
-        Fallback: tạo Linear riêng và lưu vào distiller để tránh tạo lại mỗi bước.
-        """
-        if hasattr(distiller, 'projectors') and distiller.projectors is not None:
-            projs = distiller.projectors
-            if isinstance(projs, nn.ModuleDict):
-                first_proj = next(iter(projs.values()))
-            else:
-                first_proj = projs[0]
-            return first_proj
-
-        # Fallback: tạo Linear riêng và đăng ký vào distiller một lần
-        if not hasattr(distiller, '_synergy_proj'):
-            distiller._synergy_proj = nn.Linear(
-                self.student_hidden_dim, self.teacher_hidden_dim, bias=False
-            ).to(device=device, dtype=dtype)
-        return distiller._synergy_proj
-
     def forward(self, distiller, input_data):
         """
         Tính MPS Loss.
@@ -267,6 +246,13 @@ class MPSLoss(nn.Module):
                 joint_dim=self.student_hidden_dim,
                 freeze_redundancy_estimator=False
             ).to(device)
+        
+        # Khởi tạo fallback synergy projector nếu cần (student_dim → teacher_dim)
+        if self.student_hidden_dim != self.teacher_hidden_dim:
+            if not hasattr(distiller, '_fallback_synergy_proj'):
+                distiller._fallback_synergy_proj = nn.Linear(
+                    self.student_hidden_dim, self.teacher_hidden_dim, bias=False
+                ).to(device)
         # Áp dụng phase ngay sau khi mps_student có thể vừa được tạo (2-epoch MPS)
         if getattr(self, 'current_epoch', None) is not None and hasattr(distiller, 'set_mps_phase'):
             distiller.set_mps_phase(self.current_epoch)
@@ -281,6 +267,16 @@ class MPSLoss(nn.Module):
             
             teacher_pos_image_emb, teacher_pos_text_emb, teacher_pos_joint_emb = \
                 self._extract_image_text_embeddings(teacher_model, teacher_pos_input)
+            
+            # Kiểm tra dim teacher
+            assert teacher_qry_image_emb.size(-1) == self.teacher_hidden_dim, (
+                f"Teacher image_emb dim mismatch: got {teacher_qry_image_emb.size(-1)}, "
+                f"expected {self.teacher_hidden_dim}"
+            )
+            assert teacher_qry_joint_emb.size(-1) == self.teacher_hidden_dim, (
+                f"Teacher joint_emb dim mismatch: got {teacher_qry_joint_emb.size(-1)}, "
+                f"expected {self.teacher_hidden_dim}"
+            )
             
             # Tính Teacher Synergy
             teacher_qry_synergy, teacher_qry_redundancy = distiller.mps_teacher(
@@ -300,6 +296,16 @@ class MPSLoss(nn.Module):
         student_pos_image_emb, student_pos_text_emb, student_pos_joint_emb = \
             self._extract_image_text_embeddings(student_model, student_pos_input)
         
+        # Kiểm tra dim student
+        assert student_qry_image_emb.size(-1) == self.student_hidden_dim, (
+            f"Student image_emb dim mismatch: got {student_qry_image_emb.size(-1)}, "
+            f"expected {self.student_hidden_dim}"
+        )
+        assert student_qry_joint_emb.size(-1) == self.student_hidden_dim, (
+            f"Student joint_emb dim mismatch: got {student_qry_joint_emb.size(-1)}, "
+            f"expected {self.student_hidden_dim}"
+        )
+        
         # Tính Student Synergy
         student_qry_synergy, student_qry_redundancy = distiller.mps_student(
             student_qry_image_emb, student_qry_text_emb, student_qry_joint_emb
@@ -310,15 +316,41 @@ class MPSLoss(nn.Module):
         
         # ========== LOSS CALCULATION ==========
 
-        # Project student synergy → teacher space nếu dims khác nhau
-        # (student: 1536, teacher: 3584 — cần cùng space để so sánh cosine / magnitude)
-        if self.student_hidden_dim != self.teacher_hidden_dim:
-            synergy_proj = self._get_synergy_proj(distiller, device, student_qry_synergy.dtype)
-            student_qry_synergy_proj = synergy_proj(student_qry_synergy)
-            student_pos_synergy_proj = synergy_proj(student_pos_synergy)
-        else:
-            student_qry_synergy_proj = student_qry_synergy
-            student_pos_synergy_proj = student_pos_synergy
+        # Project student synergy (student_dim) → teacher space (teacher_dim) trước khi so sánh.
+        student_qry_synergy_proj = student_qry_synergy
+        student_pos_synergy_proj = student_pos_synergy
+        synergy_proj = None
+
+        # Ưu tiên projector được cấu hình qua projector_config ('s2t_synergy')
+        if hasattr(distiller, 'projectors') and distiller.projectors is not None:
+            if isinstance(distiller.projectors, nn.ModuleDict):
+                if 's2t_synergy' in distiller.projectors:
+                    synergy_proj = distiller.projectors['s2t_synergy']
+            elif isinstance(distiller.projectors, dict):
+                synergy_proj = distiller.projectors.get('s2t_synergy', None)
+            elif hasattr(distiller.projectors, '__len__') and len(distiller.projectors) > 0:
+                synergy_proj = distiller.projectors[-1]
+
+        # Fallback: dùng _fallback_synergy_proj đã được init vào distiller ở trên
+        if synergy_proj is None and self.student_hidden_dim != self.teacher_hidden_dim:
+            synergy_proj = getattr(distiller, '_fallback_synergy_proj', None)
+
+        if synergy_proj is not None:
+            # Đảm bảo dtype nhất quán trước khi projection
+            synergy_proj_dtype = next(synergy_proj.parameters()).dtype
+            student_qry_synergy_proj = synergy_proj(student_qry_synergy.to(synergy_proj_dtype))
+            student_pos_synergy_proj = synergy_proj(student_pos_synergy.to(synergy_proj_dtype))
+            # Ép về dtype của teacher synergy để so sánh loss nhất quán
+            target_dtype = teacher_qry_synergy.dtype
+            student_qry_synergy_proj = student_qry_synergy_proj.to(target_dtype)
+            student_pos_synergy_proj = student_pos_synergy_proj.to(target_dtype)
+
+        # Kiểm tra dim sau projection
+        assert student_qry_synergy_proj.size(-1) == teacher_qry_synergy.size(-1), (
+            f"Synergy dim mismatch sau projection: student={student_qry_synergy_proj.size(-1)}, "
+            f"teacher={teacher_qry_synergy.size(-1)}. Cần cấu hình projector 's2t_synergy' "
+            f"hoặc đảm bảo student_hidden_dim == teacher_hidden_dim."
+        )
 
         # Loss 1: Cosine Similarity Loss (cùng hướng)
         qry_cosine_loss = 1 - F.cosine_similarity(
@@ -329,7 +361,7 @@ class MPSLoss(nn.Module):
         ).mean()
         synergy_loss = (qry_cosine_loss + pos_cosine_loss) / 2.0
         
-        # Loss 2: MSE Magnitude Loss (cùng độ lớn, so sánh sau projection)
+        # Loss 2: MSE Magnitude Loss (cùng độ lớn — so sánh norm sau projection)
         qry_magnitude_loss = F.mse_loss(
             torch.norm(student_qry_synergy_proj, dim=-1),
             torch.norm(teacher_qry_synergy, dim=-1)
@@ -359,19 +391,21 @@ class MPSLoss(nn.Module):
         )
         recon_loss = (qry_recon_loss + pos_recon_loss) / 2.0
         
-        # Contrastive Loss (baseline)
-        if self.world_size > 1:
-            all_student_qry_joint = self._dist_gather_tensor(student_qry_joint_emb)
-            all_student_pos_joint = self._dist_gather_tensor(student_pos_joint_emb)
-        else:
-            all_student_qry_joint = student_qry_joint_emb
-            all_student_pos_joint = student_pos_joint_emb
+        # Contrastive Loss (baseline) — bỏ qua ở epoch 0 (chỉ recon)
+        contrastive_loss = torch.tensor(0.0, device=device)
+        if self.current_epoch != 0:
+            if self.world_size > 1:
+                all_student_qry_joint = self._dist_gather_tensor(student_qry_joint_emb)
+                all_student_pos_joint = self._dist_gather_tensor(student_pos_joint_emb)
+            else:
+                all_student_qry_joint = student_qry_joint_emb
+                all_student_pos_joint = student_pos_joint_emb
 
-        scores = student_model.compute_similarity(all_student_qry_joint, all_student_pos_joint)
-        scores = scores.view(all_student_qry_joint.size(0), -1)
-        target = torch.arange(scores.size(0), device=scores.device, dtype=torch.long)
-        target = target * (all_student_qry_joint.size(0) // all_student_pos_joint.size(0))
-        contrastive_loss = nn.CrossEntropyLoss()(scores / distiller.temperature, target)
+            scores = student_model.compute_similarity(all_student_qry_joint, all_student_pos_joint)
+            scores = scores.view(all_student_qry_joint.size(0), -1)
+            target = torch.arange(scores.size(0), device=scores.device, dtype=torch.long)
+            target = target * (all_student_qry_joint.size(0) // all_student_pos_joint.size(0))
+            contrastive_loss = nn.CrossEntropyLoss()(scores / distiller.temperature, target)
 
         mps_total_kd = (
             self.synergy_weight * synergy_loss +
