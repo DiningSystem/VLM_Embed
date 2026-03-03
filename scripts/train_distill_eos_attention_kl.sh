@@ -33,7 +33,7 @@ torchrun --nproc_per_node=$NUM_GPUS_PER_NODE \
     --dataset_split "original" \
     --image_dir "vlm2vec_train/MMEB-train" \
     --percent_data 1.0 \
-    --output_dir "training/cls_07eos_attention_kl_${EOS_PROJECTION_SPACE}" \
+    --output_dir "training/cls_05eos_attention_kl_${EOS_PROJECTION_SPACE}" \
     --per_device_train_batch_size 16 \
     --gradient_accumulation_steps 1 \
     --learning_rate 1e-4 \
@@ -49,11 +49,11 @@ torchrun --nproc_per_node=$NUM_GPUS_PER_NODE \
     --lr_scheduler_type "constant" \
     --warmup_ratio 0.03 \
     --temperature "${TEMPERATURE}" \
-    --kd_weight 0.7 \
+    --kd_weight 0.5 \
     --kd_loss_type "eos_attention_kl_loss" \
     --eos_projection_space "${EOS_PROJECTION_SPACE}" \
     --image_resolution "low" \
     --ddp_find_unused_parameters True \
     --projector_config_path "./config/projector_config.json" \
     --projector_lr 5e-5 \
-    --report_to wandb
+    --report_to None

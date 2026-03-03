@@ -1,13 +1,13 @@
 SUBSETS=(
-   #"ImageNet-1K" "N24News" "HatefulMemes" "VOC2007" "SUN397"
+   "ImageNet-1K" "N24News" "HatefulMemes" "VOC2007" "SUN397"
    # "ImageNet-1K"
-   "OK-VQA" "A-OKVQA" "DocVQA" "InfographicsVQA" "ChartQA" "Visual7W"
+  # "OK-VQA" "A-OKVQA" "DocVQA" "InfographicsVQA" "ChartQA" "Visual7W"
 )
 
-MODEL=./training/vqa_05eos_05er_combined_student/checkpoint-final
+MODEL=./training/cls_07eos_03er_combined_student/checkpoint-final
 python eval_mmeb.py \
     --model_name $MODEL \
-    --encode_output_path ./MMEB-eval_outputs/vqa_05eos_05er_combined_student/ \
+    --encode_output_path ./MMEB-eval_outputs/cls_07eos_03er_combined_student/ \
     --lora True --lora_r 8 --lora_alpha 64 \
     --pooling eos \
     --model_backbone llava_qwen2 \
