@@ -202,8 +202,8 @@ def get_eranks(model, tokenizer, input):
         if image_features:
             im_er,s, prob = compute_effective_rank(image_features[i])
             image_feature_ers.append(im_er.item())
-            im_eigenvalue.append(s)
-            im_prob.append(prob)
+            im_eigenvalue.append(s.tolist())
+            im_prob.append(prob.tolist())
             num_vision_token = image_features[i].size(0)
         last_unpadded_hidden, _ = get_hidden_text_vision(
             hidden_states[-1][i],
@@ -213,8 +213,8 @@ def get_eranks(model, tokenizer, input):
         )
         text_er,s,prob = compute_effective_rank(last_unpadded_hidden)
         hidden_state_ers.append(text_er.item())
-        text_eigenvalue.append(s)
-        text_prob.append(prob)
+        text_eigenvalue.append(s.tolist())
+        text_prob.append(prob.tolist())
     return image_feature_ers, hidden_state_ers, im_eigenvalue, im_prob, text_eigenvalue, text_prob
 
 def main():
@@ -298,10 +298,12 @@ def main():
                 image_feature_ers, hidden_state_ers, im_eigenvalue, im_prob, text_eigenvalue, text_prob = get_eranks(model, processor.tokenizer, batch['qry'])
                 qry_image_feature_ers.extend(image_feature_ers)
                 qry_hidden_ers.extend(hidden_state_ers)
-                qry_prob_eigen.extend(im_eigenvalue.item())
-                qry_prob_eigen.extend(im_prob.item())
-                qry_prob_eigen.extend(text_eigenvalue.item())
-                qry_prob_eigen.extend(text_prob.item())
+                #print(im_eigenvalue)
+                #print(im_prob)
+                qry_prob_eigen.extend(im_eigenvalue)
+                qry_prob_eigen.extend(im_prob)
+                qry_prob_eigen.extend(text_eigenvalue)
+                qry_prob_eigen.extend(text_prob)
             # print_rank(f"Batch {batch_idx}: Qry Effective Rank = {effective_rank.item():.4f}")
         
         with torch.no_grad():
@@ -312,10 +314,10 @@ def main():
                 pos_hidden_ers.extend(hidden_state_ers)
                 pos_image_feature_ers.extend(image_feature_ers)
                 pos_hidden_ers.extend(hidden_state_ers)
-                pos_prob_eigen.extend(im_eigenvalue.item())
-                pos_prob_eigen.extend(im_prob.item())
-                pos_prob_eigen.extend(text_eigenvalue.item())
-                pos_prob_eigen.extend(text_prob.item())
+                pos_prob_eigen.extend(im_eigenvalue)
+                pos_prob_eigen.extend(im_prob)
+                pos_prob_eigen.extend(text_eigenvalue)
+                pos_prob_eigen.extend(text_prob)
             # print_rank(f"Batch {batch_idx}: Pos Effective Rank = {effective_rank.item():.4f}")
     
     qry_hidden_ers_mean = np.mean(qry_hidden_ers)
