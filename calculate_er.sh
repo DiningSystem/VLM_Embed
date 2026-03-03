@@ -6,11 +6,11 @@
 # )
 
 SUBSETS=(
-  "ImageNet_1K"
-#   "OK-VQA" "A-OKVQA" "DocVQA" "InfographicsVQA" "ChartQA"
+  #"ImageNet_1K"
+   "OK-VQA" #"A-OKVQA" "DocVQA" "InfographicsVQA" "ChartQA"
 )
 
-MODEL="training/FastVLM-0.5B_base_ImageNet1K_ER=0.8/checkpoint-final"
+MODEL="./training/FastVLM-0.5B_base_ImageNet1K_ER=0.8/checkpoint-final"
 # MODEL="raghavlite/B3_Qwen2_2B"
 
 # =========================================================================
@@ -26,9 +26,9 @@ python calculate_er.py \
     --dataset_name "TIGER-Lab/MMEB-train" \
     --subset_name "${SUBSETS[@]}" \
     --dataset_split "original" \
-    --image_dir "/home/s/MinhNQN/VLM_Embed/vlm2vec_train/MMEB-train" \
-    --encode_output_path "./ER_outputs/FastVLM-0.5B_base_ImageNet1K_ER=0.8/" \
-    --per_device_train_batch_size 8 \
+    --image_dir "./vlm2vec_train/MMEB-train" \
+    --encode_output_path "./ER_outputs/teacher_er_record/" \
+    --per_device_train_batch_size 1 \
     --bf16 \
     --seed 42 \
     --image_resolution "low" \

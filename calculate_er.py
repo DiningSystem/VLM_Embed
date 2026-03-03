@@ -31,6 +31,7 @@ from src.utils import print_rank
 from src.model.processor import get_backbone_name, load_processor, COLPALI
 from torch.nn.utils.rnn import pad_sequence
 import shutil 
+import random
 
 def delete_pycache(root='.'):
     for dirpath, dirnames, filenames in os.walk(root):
@@ -45,6 +46,25 @@ def delete_pycache(root='.'):
                     pass
 delete_pycache()
 
+def seed_everything(seed: int, rank: int = 0):
+    seed = seed + rank  # quan trọng trong DDP
+
+    os.environ["PYTHONHASHSEED"] = str(seed)
+
+    random.seed(seed)
+    np.random.seed(seed)
+
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+
+    # Nếu bạn muốn deterministic (chậm hơn, đôi khi lỗi với một số ops)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+
+    # Bắt buộc với một số ops CUDA mới (matmul, conv...)
+    os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
+    torch.use_deterministic_algorithms(True)
 
 def prepare_dataset(data_args, model_args):
     dataset = SingleDataset(data_args, model_args)
@@ -92,7 +112,110 @@ def compute_effective_rank(
     prob = eigvals.clamp(min=eps) / eigvals.sum()
     entropy = -(prob * torch.log(prob)).sum()
     effective_rank = torch.exp(entropy) / N
-    return effective_rank.to(dtype=hidden_state.dtype)
+    return effective_rank.to(dtype=hidden_state.dtype), s, prob
+
+def count_clean_text_tokens(inputs, special_ids_list):
+    """
+    Đếm số lượng token hợp lệ:
+    1. Giá trị token phải >= 0 (loại bỏ -200, -100...)
+    2. Giá trị token không nằm trong special_ids_list (loại bỏ CLS, SEP...)
+    """
+    input_ids = inputs['input_ids']
+    
+    if not isinstance(special_ids_list, torch.Tensor):
+        # Nếu special_ids_list là list python thường, chuyển thành tensor
+        special_ids_tensor = torch.tensor(special_ids_list, device=input_ids.device)
+    else:
+        # Nếu đã là tensor, đảm bảo cùng device
+        special_ids_tensor = special_ids_list.to(input_ids.device)
+
+    valid_index_mask = input_ids >= 0 
+    content_mask = ~torch.isin(input_ids, special_ids_tensor)
+
+    final_mask = valid_index_mask & content_mask
+
+    return final_mask.sum(dim=1)
+
+def get_unpadded_hidden(hidden_state, num_text_token, num_vision_token, attention_mask):
+    '''
+    Get hidden states for unpadded tokens (both text and vision)
+    Args:
+        hidden_state: tensor, the output hidden states from the model
+        num_text_token: int, number of text tokens
+        num_vision_token: int, number of vision tokens
+        attention_mask: tensor, the attention mask indicating valid tokens # [Sequence length]
+        (note: only )
+    '''
+    left_padding = attention_mask[0] == 0 and attention_mask[-1] == 1
+    if left_padding:
+        unpadded_hidden_state = hidden_state[-(num_vision_token + num_text_token):, :]
+    else:
+        unpadded_hidden_state = hidden_state[: (num_vision_token + num_text_token), :]
+   
+    return unpadded_hidden_state
+
+def get_hidden_text_vision(hidden_state, num_text_token, num_vision_token, attention_mask):
+    '''
+    Get hidden states for text and vision tokens separately
+    Args:
+        hidden_state: tensor, the output hidden states from the model
+        num_text_token: int, number of text tokens
+        num_vision_token: int, number of vision tokens
+        attention_mask: tensor, the attention mask indicating valid tokens # [Sequence length]
+        (note: only )
+    '''
+    left_padding = attention_mask[0] == 0 and attention_mask[-1] == 1
+    if left_padding:
+        vision_hidden_state = hidden_state[-(num_vision_token+num_text_token): -num_text_token, :]
+        text_hidden_state = hidden_state[-num_text_token:, :]
+    else:
+        vision_hidden_state = hidden_state[:num_vision_token, :]
+        text_hidden_state = hidden_state[num_vision_token: num_vision_token + num_text_token, :]
+   
+    return text_hidden_state, vision_hidden_state
+
+def get_eranks(model, tokenizer, input):
+    attention_mask = input['attention_mask'] # [b, seq_len]
+    batch_size = attention_mask.size(0)
+    output = model.encode_input(input)
+    reps, image_features, attentions, hidden_states = output
+    special_ids = torch.tensor(
+        list(
+            set(
+                list(tokenizer.added_tokens_encoder.values()) +
+                tokenizer.all_special_ids
+            )
+        ),
+        device=input['input_ids'].device,
+        dtype=torch.long
+    )
+    text_tokens = count_clean_text_tokens(input, special_ids)
+    image_feature_ers = []
+    hidden_state_ers = []
+    im_eigenvalue = []
+    im_prob = []
+    text_eigenvalue = []
+    text_prob = []
+
+    for i in range(batch_size):
+        num_vision_token = 0
+        if image_features:
+            im_er,s, prob = compute_effective_rank(image_features[i])
+            image_feature_ers.append(im_er.item())
+            im_eigenvalue.append(s)
+            im_prob.append(prob)
+            num_vision_token = image_features[i].size(0)
+        last_unpadded_hidden, _ = get_hidden_text_vision(
+            hidden_states[-1][i],
+            text_tokens[i].item(),
+            num_vision_token,
+            attention_mask[i]
+        )
+        text_er,s,prob = compute_effective_rank(last_unpadded_hidden)
+        hidden_state_ers.append(text_er.item())
+        text_eigenvalue.append(s)
+        text_prob.append(prob)
+    return image_feature_ers, hidden_state_ers, im_eigenvalue, im_prob, text_eigenvalue, text_prob
 
 def main():
     for arg in sys.argv:
@@ -103,6 +226,7 @@ def main():
             sys.argv.append(rank)
     parser = HfArgumentParser((ModelArguments, DataArguments, TrainingArguments))
     model_args, data_args, training_args = parser.parse_args_into_dataclasses()
+    #seed_everything(training_args.seed) 
 
     hf_config = AutoConfig.from_pretrained(model_args.model_name, trust_remote_code=True)
     if not hasattr(model_args, "model_backbone") or not model_args.model_backbone:
@@ -154,48 +278,90 @@ def main():
         pin_memory=False,
     )
 
-    encode_qry_path = os.path.join(data_args.encode_output_path, f"er_qry")
-    encode_tgt_path = os.path.join(data_args.encode_output_path, f"er_tgt")
+    qry_hidden_ers = []
+    qry_image_feature_ers = []
+    pos_hidden_ers = []
+    pos_image_feature_ers = []
 
-    qry_er_list = []
-    pos_er_list = []
-    for batch in tqdm(islice(train_dataloader, 1000), 
+    qry_prob_eigen = []
+    
+    pos_prob_eigen = []
+
+    for batch in tqdm(islice(train_dataloader, 1), 
                       desc="Encoding for Effective Rank",
                       disable=not is_main_process, 
-                      total=min(len(train_dataloader), 1000)):
+                      total=min(len(train_dataloader), 1)):
         batch = to_device(batch, training_args.device)
         with torch.no_grad():
             with torch.autocast(enabled=True, dtype=torch.bfloat16, device_type="cuda"):
-                qry_reps = model(qry=batch['qry'])["qry_reps"]
-                effective_rank = compute_effective_rank(qry_reps)
-                qry_er_list.append(effective_rank.item())
+                # qry_output = model.encode_input(batch['qry'])
+                image_feature_ers, hidden_state_ers, im_eigenvalue, im_prob, text_eigenvalue, text_prob = get_eranks(model, processor.tokenizer, batch['qry'])
+                qry_image_feature_ers.extend(image_feature_ers)
+                qry_hidden_ers.extend(hidden_state_ers)
+                qry_prob_eigen.extend(im_eigenvalue)
+                qry_prob_eigen.extend(im_prob)
+                qry_prob_eigen.extend(text_eigenvalue)
+                qry_prob_eigen.extend(text_prob)
             # print_rank(f"Batch {batch_idx}: Qry Effective Rank = {effective_rank.item():.4f}")
         
         with torch.no_grad():
             with torch.autocast(enabled=True, dtype=torch.bfloat16, device_type="cuda"):
-                pos_reps = model(tgt=batch['pos'])["tgt_reps"]
-                effective_rank = compute_effective_rank(pos_reps)
-                pos_er_list.append(effective_rank.item())
+                # pos_output = model.encode_input(batch['pos'])
+                image_feature_ers, hidden_state_ers, im_eigenvalue, im_prob, text_eigenvalue, text_prob = get_eranks(model, processor.tokenizer, batch['pos'])
+                pos_image_feature_ers.extend(image_feature_ers)
+                pos_hidden_ers.extend(hidden_state_ers)
+                pos_image_feature_ers.extend(image_feature_ers)
+                pos_hidden_ers.extend(hidden_state_ers)
+                pos_prob_eigen.extend(im_eigenvalue)
+                pos_prob_eigen.extend(im_prob)
+                pos_prob_eigen.extend(text_eigenvalue)
+                pos_prob_eigen.extend(text_prob)
             # print_rank(f"Batch {batch_idx}: Pos Effective Rank = {effective_rank.item():.4f}")
     
-    qry_er_mean = float(np.mean(qry_er_list))
-    pos_er_mean = float(np.mean(pos_er_list))
+    qry_hidden_ers_mean = np.mean(qry_hidden_ers)
+    qry_image_feature_ers_mean = np.mean(qry_image_feature_ers)
+    pos_hidden_ers_mean = np.mean(pos_hidden_ers)
+    pos_image_feature_ers_mean = np.mean(pos_image_feature_ers)
 
     if is_main_process:
-        print(f"[ER] qry mean = {qry_er_mean:.6f}")
-        print(f"[ER] pos mean = {pos_er_mean:.6f}")
+        print(f"Qry Hidden Effective Rank: {qry_hidden_ers_mean:.4f}")
+        print(f"Qry Image Feature Effective Rank: {qry_image_feature_ers_mean:.4f}")
+        print(f"Pos Hidden Effective Rank: {pos_hidden_ers_mean:.4f}")
+        print(f"Pos Image Feature Effective Rank: {pos_image_feature_ers_mean:.4f}")
+    
+        encode_qry_hidden_path = os.path.join(data_args.encode_output_path, f"qry_hidden_ers.json")
+        encode_qry_image_feature_path = os.path.join(data_args.encode_output_path, f"qry_image_feature_ers.json")
+        encode_pos_hidden_path = os.path.join(data_args.encode_output_path, f"pos_hidden_ers.json")
+        encode_pos_image_feature_path = os.path.join(data_args.encode_output_path, f"pos_image_feature_ers.json")
+
+        qry_prob_eigen_path = os.path.join(data_args.encode_output_path, f"qry_prob_eigen.json")
+        pos_prob_eigen_path = os.path.join(data_args.encode_output_path, f"pos_prob_eigen.json")
 
         # Lưu list (để vẽ histogram sau)
-        with open(encode_qry_path + ".json", "w", encoding="utf-8") as f:
-            json.dump(qry_er_list, f)
+        with open(encode_qry_hidden_path, "w", encoding="utf-8") as f:
+            json.dump(qry_hidden_ers, f)
 
-        with open(encode_tgt_path + ".json", "w", encoding="utf-8") as f:
-            json.dump(pos_er_list, f)
+        with open(encode_qry_image_feature_path, "w", encoding="utf-8") as f:
+            json.dump(qry_image_feature_ers, f)
+
+        with open(encode_pos_hidden_path, "w", encoding="utf-8") as f:
+            json.dump(pos_hidden_ers, f)
+
+        with open(encode_pos_image_feature_path, "w", encoding="utf-8") as f:
+            json.dump(pos_image_feature_ers, f)
+
+        with open(qry_prob_eigen_path, "w", encoding="utf-8") as f:
+            json.dump(qry_prob_eigen, f)
+
+        with open(pos_prob_eigen_path, "w", encoding="utf-8") as f:
+            json.dump(pos_prob_eigen, f)
 
         # Lưu mean riêng (txt)
         with open(os.path.join(data_args.encode_output_path, "er_mean.txt"), "w") as f:
-            f.write(f"qry_er_mean: {qry_er_mean}\n")
-            f.write(f"pos_er_mean: {pos_er_mean}\n")
+            f.write(f"qry_hidden_er_mean: {qry_hidden_ers_mean}\n")
+            f.write(f"qry_image_feature_er_mean: {qry_image_feature_ers_mean}\n")
+            f.write(f"pos_hidden_er_mean: {pos_hidden_ers_mean}\n")
+            f.write(f"pos_image_feature_er_mean: {pos_image_feature_ers_mean}\n")
     
 
 
