@@ -112,7 +112,7 @@ def compute_effective_rank(
     prob = eigvals.clamp(min=eps) / eigvals.sum()
     entropy = -(prob * torch.log(prob)).sum()
     effective_rank = torch.exp(entropy) / N
-    return effective_rank.to(dtype=hidden_state.dtype), s, prob
+    return effective_rank.to(dtype=hidden_state.dtype), eigvals, prob
 
 def count_clean_text_tokens(inputs, special_ids_list):
     """
@@ -300,10 +300,10 @@ def main():
                 qry_hidden_ers.extend(hidden_state_ers)
                 #print(im_eigenvalue)
                 #print(im_prob)
-                qry_prob_eigen.extend(im_eigenvalue)
-                qry_prob_eigen.extend(im_prob)
-                qry_prob_eigen.extend(text_eigenvalue)
-                qry_prob_eigen.extend(text_prob)
+                qry_prob_eigen.append(im_eigenvalue)
+                qry_prob_eigen.append(im_prob)
+                qry_prob_eigen.append(text_eigenvalue)
+                qry_prob_eigen.append(text_prob)
             # print_rank(f"Batch {batch_idx}: Qry Effective Rank = {effective_rank.item():.4f}")
         
         with torch.no_grad():
@@ -312,12 +312,10 @@ def main():
                 image_feature_ers, hidden_state_ers, im_eigenvalue, im_prob, text_eigenvalue, text_prob = get_eranks(model, processor.tokenizer, batch['pos'])
                 pos_image_feature_ers.extend(image_feature_ers)
                 pos_hidden_ers.extend(hidden_state_ers)
-                pos_image_feature_ers.extend(image_feature_ers)
-                pos_hidden_ers.extend(hidden_state_ers)
-                pos_prob_eigen.extend(im_eigenvalue)
-                pos_prob_eigen.extend(im_prob)
-                pos_prob_eigen.extend(text_eigenvalue)
-                pos_prob_eigen.extend(text_prob)
+                pos_prob_eigen.append(im_eigenvalue)
+                pos_prob_eigen.append(im_prob)
+                pos_prob_eigen.append(text_eigenvalue)
+                pos_prob_eigen.append(text_prob)
             # print_rank(f"Batch {batch_idx}: Pos Effective Rank = {effective_rank.item():.4f}")
     
     qry_hidden_ers_mean = np.mean(qry_hidden_ers)
