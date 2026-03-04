@@ -12,7 +12,8 @@ SUBSETS=(
 
 #MODEL="./training/FastVLM-0.5B_base_ImageNet1K_ER=0.8/checkpoint-final"
 #MODEL="raghavlite/B3_Qwen2_2B"
-MODEL="dangnguyens1/sft_meta_cls_e0"
+#MODEL="dangnguyens1/sft_meta_cls_e0"
+MODEL="DVLe/cls_05eos_03er_combined_student"
 
 # =========================================================================
 # Dùng torchrun để khởi chạy
@@ -28,7 +29,7 @@ python calculate_er.py \
     --subset_name "${SUBSETS[@]}" \
     --dataset_split "original" \
     --image_dir "./vlm2vec_train/MMEB-train" \
-    --encode_output_path "./ER_outputs/student_constrastive_er_record/" \
+    --encode_output_path "./ER_outputs/trained_student_er_record/" \
     --per_device_train_batch_size 1 \
     --bf16 \
     --seed 42 \
