@@ -552,6 +552,7 @@ class MMEBModel(nn.Module):
                 model_args.model_name,
                 low_cpu_mem_usage=True,
                 torch_dtype=torch.bfloat16,
+                device_map="cuda:0",
                 config=config,
                 # **kwargs
             )
