@@ -1,4 +1,4 @@
-import json
+﻿import json
 from src.distiller import Distiller, DistillationCollator, DistillationDataset
 from src.arguments import DataArguments, MTEBArguments, TrainingArguments, ModelArguments
 from src import model
@@ -275,7 +275,10 @@ class Trainer:
             if is_main_process() and self.training_args.save_strategy == "epoch":
                 ckpt_dir = os.path.join(self.training_args.output_dir, f"checkpoint-epoch-{epoch}")
                 projector_dir = os.path.join(ckpt_dir, "mm_projector.pth")
+                distill_projector_dir = os.path.join(ckpt_dir, "distill_projectors.pth")
                 os.makedirs(ckpt_dir, exist_ok=True)
+
+                self.distiller.module.save_projectors(distill_projector_dir)
                 
                 student = self.distiller.module.student
                 student.encoder.save_pretrained(ckpt_dir)
@@ -306,7 +309,9 @@ class Trainer:
         if is_main_process():
             final_ckpt_dir = os.path.join(self.training_args.output_dir, f"checkpoint-final")
             projector_dir =  os.path.join(final_ckpt_dir, "mm_projector.pth")
+            distill_projector_dir = os.path.join(final_ckpt_dir, "distill_projectors.pth")
             os.makedirs(final_ckpt_dir, exist_ok=True)
+            self.distiller.module.save_projectors(distill_projector_dir)
             student = self.distiller.module.student
             student.encoder.save_pretrained(final_ckpt_dir)
             if self.model_args.model_backbone in ["llava_onevision", "llava_two_vision"]:

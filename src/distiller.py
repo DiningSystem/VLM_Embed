@@ -1,4 +1,4 @@
-import os
+﻿import os
 import io
 from typing import Dict, Tuple, Optional
 import time
@@ -251,8 +251,21 @@ class Distiller(nn.Module):
             })
             print("Modality gated pooling parameters added to optimizer.")
         return optimizer
-    
-class DistillationCollator:
+
+    def save_projectors(self, output_path: str):
+        if not hasattr(self, 'projectors') or self.projectors is None:
+            print_rank("No distillation projector found to save.")
+            return False
+
+        output_dir = os.path.dirname(output_path)
+        if output_dir:
+            os.makedirs(output_dir, exist_ok=True)
+
+        torch.save(self.projectors.state_dict(), output_path)
+        print_rank(f"Saved distillation projectors to {output_path}")
+        return True
+
+class DistillationCollator:    
     def __init__(self, student_processor: ProcessorMixin, teacher_processor: ProcessorMixin,
                  model_args: ModelArguments, data_args: DataArguments, training_args: TrainingArguments,
                  batch_size: Optional[int] = None):
