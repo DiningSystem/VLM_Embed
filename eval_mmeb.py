@@ -26,7 +26,27 @@ from src.utils import print_rank
 from src.model.processor import get_backbone_name, load_processor, COLPALI
 from torch.nn.utils.rnn import pad_sequence
 import shutil 
+import random
 
+def seed_everything(seed: int, rank: int = 0):
+    seed = seed + rank  # quan trọng trong DDP
+
+    os.environ["PYTHONHASHSEED"] = str(seed)
+
+    random.seed(seed)
+    np.random.seed(seed)
+
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+
+    # Nếu bạn muốn deterministic (chậm hơn, đôi khi lỗi với một số ops)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+
+    # Bắt buộc với một số ops CUDA mới (matmul, conv...)
+    os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
+    torch.use_deterministic_algorithms(True)
 
 def delete_pycache(root='.'):
     for dirpath, dirnames, filenames in os.walk(root):
@@ -81,7 +101,9 @@ def main():
             sys.argv.append(rank)
     parser = HfArgumentParser((ModelArguments, DataArguments, TrainingArguments))
     model_args, data_args, training_args = parser.parse_args_into_dataclasses()
-   
+    
+    seed_everything(30)
+     
     use_wandb = False
     is_main_process = training_args.local_rank in [-1, 0]
     if is_main_process:
