@@ -287,10 +287,10 @@ def main():
     
     pos_prob_eigen = []
 
-    for batch in tqdm(islice(train_dataloader, 1), 
+    for batch in tqdm(islice(train_dataloader, 4), 
                       desc="Encoding for Effective Rank",
                       disable=not is_main_process, 
-                      total=min(len(train_dataloader), 1)):
+                      total=min(len(train_dataloader), 4)):
         batch = to_device(batch, training_args.device)
         with torch.no_grad():
             with torch.autocast(enabled=True, dtype=torch.bfloat16, device_type="cuda"):
