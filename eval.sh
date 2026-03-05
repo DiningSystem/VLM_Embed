@@ -17,6 +17,7 @@ python eval_mmeb.py \
     --subset_name "${SUBSETS[@]}" \
     --dataset_split test \
     --per_device_eval_batch_size 10 \
+    --seed 100 \
     --image_dir eval_images/ \
     --tgt_prefix_mod \
     --load_pretrained_lora True \

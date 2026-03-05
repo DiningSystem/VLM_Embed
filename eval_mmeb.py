@@ -102,7 +102,7 @@ def main():
     parser = HfArgumentParser((ModelArguments, DataArguments, TrainingArguments))
     model_args, data_args, training_args = parser.parse_args_into_dataclasses()
     
-    seed_everything(100)
+    seed_everything(training_args.seed)
      
     use_wandb = False
     is_main_process = training_args.local_rank in [-1, 0]
