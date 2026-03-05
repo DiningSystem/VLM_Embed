@@ -1,6 +1,7 @@
 import json
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib.ticker import MultipleLocator
 
 # ===== GROUP 1 =====
 json_paths_g1 = [
@@ -20,9 +21,15 @@ json_paths_g2 = [
 
 
 eta = 0.85
-save_name = "Eigenvalue_energy"
+save_name = "eigenvalue_energy"
 
-fig, axes = plt.subplots(2, 2, figsize=(12, 10))
+fig, axes = plt.subplots(2, 2, figsize=(8, 6))
+plt.rcParams.update({
+    "font.size": 9,
+    "axes.titlesize": 10,
+    "axes.labelsize": 9,
+    "legend.fontsize": 8,
+})
 
 # ---- Define sample indices (0-based) ----
 g1_samples = [1, 2]  # sample 2, 3
@@ -49,7 +56,7 @@ for col, sample_idx in enumerate(g1_samples):
         eigs = np.array(data[sample_idx][0])
         eigs = np.sort(eigs)[::-1]
 
-        indices = np.arange(1, len(eigs) + 1)
+        indices = np.arange(0, len(eigs))
         cum_energy = np.cumsum(eigs) / np.sum(eigs)
 
         k = np.argmax(cum_energy >= eta) + 1
@@ -59,7 +66,8 @@ for col, sample_idx in enumerate(g1_samples):
         # Plot only up to k
         ax.plot(indices, cum_energy,
                 color=color,
-                linewidth=2,
+                linewidth=1,
+                linestyle='--', marker='o', markersize=3,
                 label=label)
 
     # if teacher_k is not None:
@@ -95,7 +103,7 @@ for col, sample_idx in enumerate(g2_samples):
         eigs = np.array(data[sample_idx][0])
         eigs = np.sort(eigs)[::-1]
 
-        indices = np.arange(1, len(eigs) + 1)
+        indices = np.arange(0, len(eigs))
         cum_energy = np.cumsum(eigs) / np.sum(eigs)
 
         k = np.argmax(cum_energy >= eta) + 1
@@ -105,7 +113,8 @@ for col, sample_idx in enumerate(g2_samples):
         # Plot only up to k
         ax.plot(indices, cum_energy,
                 color=color,
-                linewidth=2,
+                linewidth=1,
+                linestyle='--', marker='o', markersize=3,
                 label=label)
 
     # if teacher_k is not None:
@@ -117,6 +126,7 @@ for col, sample_idx in enumerate(g2_samples):
     #                label="0.85 energy")
 
     ax.set_ylim(0.4, 1.02)
+    ax.xaxis.set_major_locator(MultipleLocator(2.5))
     #ax.set_xlim(1, max(k_values))
     ax.grid(True)
 
@@ -128,9 +138,16 @@ unique = dict(zip(labels, handles))
 fig.legend(unique.values(), unique.keys(),
            loc="upper center",
            ncol=4,
-           bbox_to_anchor=(0.5, 0.95),
+           bbox_to_anchor=(0.5, 0.94),
            frameon=False)
 
-fig.subplots_adjust(hspace=0.35, top=0.88)
+fig.subplots_adjust(
+    left=0.1,
+    right=0.98,
+    bottom=0.1,
+    top=0.85,
+    wspace=0.25,
+    hspace=0.35
+)
 plt.savefig(f"{save_name}.png", dpi=300, bbox_inches="tight")
 plt.show()
