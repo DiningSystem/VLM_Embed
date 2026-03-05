@@ -28,7 +28,7 @@ plt.rcParams.update({
     "font.size": 9,
     "axes.titlesize": 10,
     "axes.labelsize": 9,
-    "legend.fontsize": 8,
+    "legend.fontsize": 11,
 })
 
 # ---- Define sample indices (0-based) ----
@@ -42,7 +42,7 @@ g2_samples = [1, 3]  # sample 2, 4
 for col, sample_idx in enumerate(g1_samples):
 
     ax = axes[0, col]
-    ax.set_title(f"CLS dataset — Sample {col+1}")
+    #ax.set_title(f"CLS dataset — Sample {col+1}")
     ax.set_xlabel("Eigenvalue Index (i)")
     ax.set_ylabel("Cumulative Energy Ratio")
 
@@ -89,7 +89,7 @@ for col, sample_idx in enumerate(g1_samples):
 for col, sample_idx in enumerate(g2_samples):
 
     ax = axes[1, col]
-    ax.set_title(f"VQA dataset— Sample {col+1}")
+    #ax.set_title(f"VQA dataset— Sample {col+1}")
     ax.set_xlabel("Eigenvalue Index (i)")
     ax.set_ylabel("Cumulative Energy Ratio")
 
