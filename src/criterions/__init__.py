@@ -20,6 +20,7 @@ from .kl_cosine_distill import kl_cosine_distill
 from .compute_effective_rank import EffectiveRankLoss
 from .contrastive_pooling_loss import ContrastivePoolingLoss
 from .eos_attention_kl_loss import EOSAttentionKLLoss
+from .eos_attention_kl_intra_cosine_loss import EOSAttentionKLIntraCosineLoss
 from .eos_er_combined_loss import EOSERCombinedLoss
 
 criterion_list = {
@@ -46,6 +47,7 @@ criterion_list = {
     "eigen_rank_align_loss": ERAlign,
     "contrastive_pooling_loss": ContrastivePoolingLoss,
     "eos_attention_kl_loss": EOSAttentionKLLoss,
+    "eos_attention_kl_intra_cosine_loss": EOSAttentionKLIntraCosineLoss,
     "eos_er_combined_loss": EOSERCombinedLoss,
 }
 
