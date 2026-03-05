@@ -9,7 +9,7 @@ json_paths_g1 = [
     "./ER_outputs/student_er_record5/qry_prob_eigen.json",
     "./ER_outputs/baseline_er_record5/qry_prob_eigen.json",
 ]
-labels = ["Teacher", "Student", "Baseline"]
+labels = ["Teacher", "GAR student", "SFT student"]
 colors = ["navy", "red", "darkgreen"]
 
 # ===== GROUP 2 =====
