@@ -9,7 +9,7 @@ json_paths_g1 = [
     "./ER_outputs/student_er_record5/qry_prob_eigen.json",
     "./ER_outputs/baseline_er_record5/qry_prob_eigen.json",
 ]
-labels = ["Teacher", "GAR student", "SFT student"]
+labels = ["Teacher", "IDR student", "SFT student"]
 colors = ["navy", "red", "darkgreen"]
 
 # ===== GROUP 2 =====
@@ -21,9 +21,9 @@ json_paths_g2 = [
 
 
 eta = 0.85
-save_name = "eigenvalue_energy"
+save_name = "eigenvalue_energy2"
 
-fig, axes = plt.subplots(2, 2, figsize=(8, 6))
+fig, axes = plt.subplots(1, 2, figsize=(8, 3))
 plt.rcParams.update({
     "font.size": 9,
     "axes.titlesize": 10,
@@ -32,8 +32,8 @@ plt.rcParams.update({
 })
 
 # ---- Define sample indices (0-based) ----
-g1_samples = [1, 2]  # sample 2, 3
-g2_samples = [1, 3]  # sample 2, 4
+g1_samples = [2]  # sample 2, 3
+g2_samples = [1]  # sample 2, 4
 
 
 # =====================================================
@@ -41,8 +41,8 @@ g2_samples = [1, 3]  # sample 2, 4
 # =====================================================
 for col, sample_idx in enumerate(g1_samples):
 
-    ax = axes[0, col]
-    #ax.set_title(f"CLS dataset — Sample {col+1}")
+    ax = axes[0]
+    ax.set_title(f"Example 1")
     ax.set_xlabel("Eigenvalue Index (i)")
     ax.set_ylabel("Cumulative Energy Ratio")
 
@@ -88,8 +88,8 @@ for col, sample_idx in enumerate(g1_samples):
 # =====================================================
 for col, sample_idx in enumerate(g2_samples):
 
-    ax = axes[1, col]
-    #ax.set_title(f"VQA dataset— Sample {col+1}")
+    ax = axes[1]
+    ax.set_title(f"Example 2")
     ax.set_xlabel("Eigenvalue Index (i)")
     ax.set_ylabel("Cumulative Energy Ratio")
 
@@ -132,13 +132,13 @@ for col, sample_idx in enumerate(g2_samples):
 
 
 # ---- Global Legend ----
-handles, labels = axes[0, 0].get_legend_handles_labels()
+handles, labels = axes[0].get_legend_handles_labels()
 unique = dict(zip(labels, handles))
 
 fig.legend(unique.values(), unique.keys(),
            loc="upper center",
            ncol=4,
-           bbox_to_anchor=(0.5, 0.94),
+           bbox_to_anchor=(0.5, 1.03),
            frameon=False)
 
 fig.subplots_adjust(
