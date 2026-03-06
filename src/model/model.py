@@ -134,7 +134,7 @@ class MMEBModel(nn.Module):
             last_hidden_state = hidden_states.hidden_states[-1]
             attention_matrix = hidden_states.attentions if hasattr(hidden_states, 'attentions') else None
             pooled_output = self._pooling(last_hidden_state, input['attention_mask'])
-            print("len image features:", None if image_features is None else image_features.shape)
+            #print("len image features:", None if image_features is None else image_features.shape)
             return pooled_output, image_features, attention_matrix, output_hidden_states
         elif getattr(self, "model_backbone", None) in [LLAVA_QWEN2, QWEN2_VL]:
             # print("Encoding input for FastVLM model backbone")
