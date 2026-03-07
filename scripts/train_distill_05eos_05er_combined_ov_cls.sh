@@ -5,8 +5,8 @@ TRAIN_SCRIPT="train_distill_ddp.py"
 
 EOS_PROJECTION_SPACE="student"
 TEMPERATURE=0.02
-EOS_KD_WEIGHT=0.3
-ER_KD_WEIGHT=0.3
+EOS_KD_WEIGHT=0.5
+ER_KD_WEIGHT=0.5
 
 SUBSETS=(
 #"OK-VQA" "A-OKVQA" "DocVQA" "InfographicsVQA" "ChartQA" "Visual7W"
@@ -30,7 +30,7 @@ torchrun --nproc_per_node=$NUM_GPUS_PER_NODE \
     --dataset_split "original" \
     --image_dir "vlm2vec_train/MMEB-train" \
     --percent_data 1.0 \
-    --output_dir "training/cls_ov_03eos_03er_combined_${EOS_PROJECTION_SPACE}" \
+    --output_dir "training/cls_ov_05eos_05er_combined_${EOS_PROJECTION_SPACE}" \
     --per_device_train_batch_size 8 \
     --gradient_accumulation_steps 1 \
     --learning_rate 1e-4 \
