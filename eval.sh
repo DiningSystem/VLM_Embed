@@ -21,5 +21,6 @@ python eval_mmeb.py \
     --seed 210 \
     --image_dir eval_images/ \
     --tgt_prefix_mod \
+    --image_resolution "low" \
     --load_pretrained_lora True \
     --report_to none
