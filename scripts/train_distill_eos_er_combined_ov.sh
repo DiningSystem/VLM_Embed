@@ -9,8 +9,8 @@ EOS_KD_WEIGHT=0.5
 ER_KD_WEIGHT=0.3
 
 SUBSETS=(
-#"OK-VQA" "A-OKVQA" "DocVQA" "InfographicsVQA" "ChartQA" "Visual7W"
-  "ImageNet_1K" "N24News" "HatefulMemes" "VOC2007" "SUN397"
+"OK-VQA" "A-OKVQA" "DocVQA" "InfographicsVQA" "ChartQA" "Visual7W"
+  #"ImageNet_1K" "N24News" "HatefulMemes" "VOC2007" "SUN397"
 )
 
 torchrun --nproc_per_node=$NUM_GPUS_PER_NODE \
@@ -30,9 +30,9 @@ torchrun --nproc_per_node=$NUM_GPUS_PER_NODE \
     --dataset_split "original" \
     --image_dir "vlm2vec_train/MMEB-train" \
     --percent_data 1.0 \
-    --output_dir "training/cls_ov_05eos_03er_combined_${EOS_PROJECTION_SPACE}" \
-    --per_device_train_batch_size 16 \
-    --gradient_accumulation_steps 1 \
+    --output_dir "training/vqa_ov_05eos_03er_combined_${EOS_PROJECTION_SPACE}" \
+    --per_device_train_batch_size 4 \
+    --gradient_accumulation_steps 4 \
     --learning_rate 1e-4 \
     --num_train_epochs 1 \
     --bf16 \
@@ -52,6 +52,6 @@ torchrun --nproc_per_node=$NUM_GPUS_PER_NODE \
     --er_kd_weight "${ER_KD_WEIGHT}" \
     --image_resolution "low" \
     --projector_config_path "./config/projector_config.json" \
-    --projector_lr 5e-5 \
+    --projector_lr 5e-4 \
     --ddp_find_unused_parameters True \
     --report_to None
