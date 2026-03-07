@@ -20,7 +20,7 @@ from typing import Iterator, List, Tuple, Union
 
 logger = logging.getLogger(__name__)
 
-def process_image(image, resolution, max_dim=1344):
+def process_image(image, resolution, max_dim=336):
     if image is None:
         return None
     if resolution == "high":
