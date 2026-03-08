@@ -1,6 +1,8 @@
 #!/bin/bash
 
-NUM_GPUS_PER_NODE=1
+export CUDA_VISIBLE_DEVICES=0,1
+
+NUM_GPUS_PER_NODE=2
 TRAIN_SCRIPT="train_distill_ddp.py"
 
 EOS_PROJECTION_SPACE="student"
@@ -34,7 +36,7 @@ torchrun --nproc_per_node=$NUM_GPUS_PER_NODE \
     --per_device_train_batch_size 8 \
     --gradient_accumulation_steps 1 \
     --learning_rate 1e-4 \
-    --num_train_epochs 1 \
+    --num_train_epochs 2 \
     --bf16 \
     --save_total_limit 5 \
     --logging_steps 1 \
