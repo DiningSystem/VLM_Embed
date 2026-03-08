@@ -8,6 +8,14 @@ files = {
     "N24News.zip": "images_zip/N24News.zip",
     "SUN397.zip": "images_zip/SUN397.zip",
     "HatefulMemes.zip": "images_zip/HatefulMemes.zip",
+    "VOC2007.zip": "images_zip/VOC2007.zip",
+    
+    "OK-VQA.zip": "images_zip/OK-VQA.zip",
+    "A-OKVQA.zip": "images_zip/A-OKVQA.zip",
+    "DocVQA.zip": "images_zip/DocVQA.zip",
+    "InfographicsVQA.zip": "images_zip/InfographicsVQA.zip",
+    "ChartQA.zip": "images_zip/ChartQA.zip",
+    "Visual7W.zip": "images_zip/Visual7W.zip",
 }
 
 dataset = "TIGER-Lab/MMEB-train"
