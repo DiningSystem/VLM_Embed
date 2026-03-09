@@ -74,6 +74,30 @@ def process_image(image, resolution, max_dim=1344):
 
     return image
 
+def process_tea_image(image, resolution, max_dim=1344):
+    if image is None:
+        return None
+
+    width, height = image.size
+    max_side = max(width, height)
+    if resolution == "high":
+        target_max = 1344
+    elif resolution == "mid":
+        target_max = 672
+    elif resolution == "low":
+        target_max = 448
+    else:
+        target_max = max_dim
+
+    # Tính tỉ lệ scale sao cho cạnh lớn nhất = target_max
+    if max_side > target_max:
+        scale = target_max / max_side
+        new_width = int(width * scale)
+        new_height = int(height * scale)
+        image = image.resize((new_width, new_height))
+
+    return image
+
 def create_semi_orthogonal_matrix(tensor):
     rows, cols = tensor.shape
     if rows >= cols:
@@ -367,7 +391,7 @@ class DistillationDataset(Dataset):
     def __len__(self):
         return len(self.train_data)
     
-    def _get_image(self, img_path, backbone):
+    def _get_image(self, img_path, backbone, teacher=False):
         if not img_path:
             return None
         full_img_path = os.path.join(self.data_args.image_dir, img_path)
@@ -384,7 +408,10 @@ class DistillationDataset(Dataset):
             result.paste(image, (x_offset, y_offset))
             image = result
         if backbone != PHI3V and self.data_args.image_resolution:
-            return process_image(image, self.data_args.image_resolution)
+            if teacher:
+                return process_tea_image(image, self.data_args.image_resolution)
+            else:
+                return process_image(image, self.data_args.image_resolution)
         else:
             return image
         
@@ -427,8 +454,8 @@ class DistillationDataset(Dataset):
             if teacher_backbone != PHI3V:
                 teacher_qry_text = teacher_qry_text.replace(VLM_IMAGE_TOKENS[PHI3V], VLM_IMAGE_TOKENS[teacher_backbone])
                 teacher_pos_text = teacher_pos_text.replace(VLM_IMAGE_TOKENS[PHI3V], VLM_IMAGE_TOKENS[teacher_backbone])
-            teacher_qry_image = self._get_image(qry_image_path, teacher_backbone)
-            teacher_pos_image = self._get_image(pos_image_path, teacher_backbone)
+            teacher_qry_image = self._get_image(qry_image_path, teacher_backbone, teacher=True)
+            teacher_pos_image = self._get_image(pos_image_path, teacher_backbone, teacher=True)
 
             if (not teacher_qry_text and not teacher_qry_image) or (not teacher_pos_text and not teacher_pos_image):
                 print("empty inputs")
