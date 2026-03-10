@@ -120,7 +120,7 @@ class MMEBModel(nn.Module):
                 - attention_matrix: list of (batch, num_heads, num_tokens, num_tokens)
             """
         elif getattr(self, "model_backbone", None) in [LLAVA_NEXT, LLAVA_ONEVISION]:
-            print("Encoding input for LLAVA model backbone")
+            # print("Encoding input for LLAVA model backbone")
             if hasattr(input, 'pixel_values'):
                 input['pixel_values'] = input['pixel_values'].squeeze(1)
                 input['image_sizes'] = input['image_sizes'].squeeze(1)
