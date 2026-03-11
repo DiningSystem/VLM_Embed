@@ -29,25 +29,25 @@ def process_image(image, resolution, max_dim=336):
 
     if resolution == "high":
         target_max = 1344
-        image = image.resize((1344, 1344))
+        #image = image.resize((1344, 1344))
     elif resolution == "mid":
-        image = image.resize((672, 672))
+        #image = image.resize((672, 672))
         target_max = 672
     elif resolution == "low":
         target_max = 336
-        image = image.resize((336, 336))
+        #image = image.resize((336, 336))
     else:
         target_max = max_dim
-        cur_max_dim = max(image.size)
-        if cur_max_dim > max_dim:
-            image = image.resize((max_dim, max_dim))
+        #cur_max_dim = max(image.size)
+        #if cur_max_dim > max_dim:
+         #   image = image.resize((max_dim, max_dim))
 
     # Tính tỉ lệ scale sao cho cạnh lớn nhất = target_max
-    # if max_side > target_max:
-    #     scale = target_max / max_side
-    #     new_width = int(width * scale)
-    #     new_height = int(height * scale)
-    #     image = image.resize((new_width, new_height))
+    if max_side > target_max:
+        scale = target_max / max_side
+        new_width = int(width * scale)
+        new_height = int(height * scale)
+        image = image.resize((new_width, new_height))
 
     return image
 
