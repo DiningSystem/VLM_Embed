@@ -250,9 +250,9 @@ class EOSAttentionKLLoss(nn.Module):
         )
 
         num_student_text_qry_tokens = count_clean_text_tokens(student_qry_input, student_special_ids)
-        num_student_text_pos_tokens = count_clean_text_tokens(student_pos_input, student_special_ids)
+        #num_student_text_pos_tokens = count_clean_text_tokens(student_pos_input, student_special_ids)
         num_teacher_text_qry_tokens = count_clean_text_tokens(teacher_qry_input, teacher_special_ids)
-        num_teacher_text_pos_tokens = count_clean_text_tokens(teacher_pos_input, teacher_special_ids)
+        #num_teacher_text_pos_tokens = count_clean_text_tokens(teacher_pos_input, teacher_special_ids)
 
         student_qry_text, student_qry_vision = self._build_pooled_reps(
             student_qry_reps,
