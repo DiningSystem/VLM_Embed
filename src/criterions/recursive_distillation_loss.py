@@ -27,6 +27,8 @@ class RecursiveDistillationLoss(nn.Module):
         self.kd_loss_weight = getattr(self.args, "kd_weight", 1.0)
 
         self.num_steps = max(1, int(getattr(self.args, "recursive_num_steps", 6)))
+        self.backprop_steps = max(1, int(getattr(self.args, "recursive_backprop_steps", self.num_steps)))
+        self.backprop_steps = min(self.backprop_steps, self.num_steps)
         self.mean_weight = float(getattr(self.args, "recursive_mean_weight", 1.0))
         self.cov_weight = float(getattr(self.args, "recursive_cov_weight", 0.1))
         self.contrastive_weight = float(getattr(self.args, "recursive_contrastive_weight", 1.0))
@@ -163,7 +165,7 @@ class RecursiveDistillationLoss(nn.Module):
             return delta
         return projector(delta)
 
-    def _recursive_student_states(self, student_model, student_input, base_output, k_steps: int):
+    def _recursive_student_updates(self, student_model, student_input, base_output, k_steps: int):
         """
         Build recursive student token states:
             X^{k+1} = X^k + f_theta(X^k + e_k)
@@ -172,17 +174,18 @@ class RecursiveDistillationLoss(nn.Module):
         """
         _, _, _, hidden_states = base_output
         x_prev = hidden_states[0]  # (B, S, D), proxy for X^0
-        states = [x_prev]
+        updates = []
 
         student_eval_cache_ok = not student_model.training
         final_reps = base_output[0]
         for k in range(1, k_steps + 1):
+            grad_enabled_step = (not student_eval_cache_ok) and (k > k_steps - self.backprop_steps)
             step_tag = f"student_eval_step_{k}" if student_eval_cache_ok else f"student_train_step_{k}"
             step_output = self._encode_with_cache(
                 student_model,
                 step_tag,
                 student_input,
-                enable_grad=not student_eval_cache_ok,
+                enable_grad=grad_enabled_step,
             )
             _, _, _, step_hidden = step_output
             final_reps = step_output[0]
@@ -191,11 +194,13 @@ class RecursiveDistillationLoss(nn.Module):
             e_k = self._step_embedding(k, f_theta_out.size(-1), f_theta_out.device, f_theta_out.dtype)
             # f_theta(X^k + e_k) -- conditioning via step embedding (broadcast over tokens)
             update = f_theta_out + e_k
+            if not grad_enabled_step:
+                update = update.detach()
             x_next = x_prev + update
-            states.append(x_next)
+            updates.append(update)
             x_prev = x_next
 
-        return states, final_reps
+        return updates, final_reps
 
     def _update_loss_for_side(
         self,
@@ -203,7 +208,7 @@ class RecursiveDistillationLoss(nn.Module):
         teacher_input,
         student_base_output,
         teacher_hidden_states,
-        recursive_student_states,
+        recursive_student_updates,
         student_image_features,
         teacher_image_features,
         student_special_ids,
@@ -219,7 +224,6 @@ class RecursiveDistillationLoss(nn.Module):
         t_text_counts = count_clean_text_tokens(teacher_input, teacher_special_ids)
 
         bsz = student_input["input_ids"].size(0)
-        total = student_hidden_states[0].new_tensor(0.0)
         total_mean = student_hidden_states[0].new_tensor(0.0)
         total_cov = student_hidden_states[0].new_tensor(0.0)
         denom = 0
@@ -242,7 +246,7 @@ class RecursiveDistillationLoss(nn.Module):
             t_mask = teacher_input["attention_mask"][i]
 
             for k in range(1, k_steps + 1):
-                delta_s = recursive_student_states[k][i] - recursive_student_states[k - 1][i]
+                delta_s = recursive_student_updates[k - 1][i]
                 delta_t = teacher_hidden_states[teacher_idx[k]][i] - teacher_hidden_states[teacher_idx[k - 1]][i]
 
                 s_txt, s_img = get_hidden_text_vision(delta_s, s_num_text, s_num_vision, s_mask)
@@ -269,7 +273,6 @@ class RecursiveDistillationLoss(nn.Module):
                 wk = float(k) / float(k_steps)
                 total_mean = total_mean + wk * mean_loss
                 total_cov = total_cov + wk * cov_loss
-                total = total + wk * (self.mean_weight * mean_loss + self.cov_weight * cov_loss)
                 denom += 1
 
             cur_s_img += 1
@@ -277,8 +280,8 @@ class RecursiveDistillationLoss(nn.Module):
 
         if denom == 0:
             zero = student_hidden_states[0].new_tensor(0.0)
-            return zero, zero, zero
-        return total / denom, total_mean / denom, total_cov / denom
+            return zero, zero
+        return total_mean / denom, total_cov / denom
 
     def _contrastive_similarity_distill(self, student_qry_reps, student_pos_reps, teacher_qry_reps, teacher_pos_reps, projectors):
         teacher_q = F.normalize(projectors["t2s"](teacher_qry_reps), dim=-1)
@@ -326,10 +329,10 @@ class RecursiveDistillationLoss(nn.Module):
         student_qry_reps, student_qry_image_features, student_qry_attention, _ = student_qry_output
         student_pos_reps, student_pos_image_features, student_pos_attention, _ = student_pos_output
 
-        recursive_qry_states, final_student_qry_reps = self._recursive_student_states(
+        recursive_qry_updates, final_student_qry_reps = self._recursive_student_updates(
             student_model, student_qry_input, student_qry_output, self.num_steps
         )
-        recursive_pos_states, final_student_pos_reps = self._recursive_student_states(
+        recursive_pos_updates, final_student_pos_reps = self._recursive_student_updates(
             student_model, student_pos_input, student_pos_output, self.num_steps
         )
 
@@ -355,24 +358,24 @@ class RecursiveDistillationLoss(nn.Module):
             device=teacher_qry_input["input_ids"].device,
         )
 
-        _, mean_qry_loss, cov_qry_loss = self._update_loss_for_side(
+        mean_qry_loss, cov_qry_loss = self._update_loss_for_side(
             student_qry_input,
             teacher_qry_input,
             student_qry_output,
             teacher_qry_hidden_states,
-            recursive_qry_states,
+            recursive_qry_updates,
             student_qry_image_features,
             teacher_qry_image_features,
             student_special_ids,
             teacher_special_ids,
             projectors,
         )
-        _, mean_pos_loss, cov_pos_loss = self._update_loss_for_side(
+        mean_pos_loss, cov_pos_loss = self._update_loss_for_side(
             student_pos_input,
             teacher_pos_input,
             student_pos_output,
             teacher_pos_hidden_states,
-            recursive_pos_states,
+            recursive_pos_updates,
             student_pos_image_features,
             teacher_pos_image_features,
             student_special_ids,
