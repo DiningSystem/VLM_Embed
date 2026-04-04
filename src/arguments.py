@@ -122,6 +122,13 @@ class TrainingArguments(TrainingArguments):
         metadata={"help": "List of split layers for student; number of elements equals number of projectors"}   
     )
     w_cross_modal_loss: float = field(default=1.0, metadata={"help": "weight for cross modal loss"})
+    recursive_num_steps: int = field(default=6, metadata={"help": "number of recursive distillation steps"})
+    recursive_mean_weight: float = field(default=1.0, metadata={"help": "mean term weight in recursive update loss"})
+    recursive_cov_weight: float = field(default=0.1, metadata={"help": "covariance term weight in recursive update loss"})
+    recursive_contrastive_weight: float = field(default=1.0, metadata={"help": "weight for recursive contrastive KD term"})
+    recursive_attn_weight: float = field(default=1.0, metadata={"help": "weight for first-layer cross-modal attention alignment"})
+    recursive_enable_kv_cache: bool = field(default=True, metadata={"help": "enable teacher/eval-student output cache for recursive KD"})
+    recursive_kv_cache_size: int = field(default=32, metadata={"help": "max entries in recursive KD cache"})
 @dataclass
 class MTEBArguments:
     device: str = field(default="cuda", metadata={"help": "use cuda for single GPU inference, if multiple GPUs are available it will use DP automatically"})
