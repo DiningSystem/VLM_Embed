@@ -216,6 +216,7 @@ class RecursiveDistillationLoss(nn.Module):
         projectors,
     ):
         _, _, _, student_hidden_states = student_base_output
+        projector_t2s = projectors["t2s"] if "t2s" in projectors else None
 
         k_steps = self.num_steps
         teacher_idx = self._step_indices(len(teacher_hidden_states), k_steps)
@@ -255,8 +256,8 @@ class RecursiveDistillationLoss(nn.Module):
                 # student branch stays in student space; only teacher is projected to student space
                 z_s_img = self._project_update(s_img, None)
                 z_s_txt = self._project_update(s_txt, None)
-                z_t_img = self._project_update(t_img, projectors.get("t2s"))
-                z_t_txt = self._project_update(t_txt, projectors.get("t2s"))
+                z_t_img = self._project_update(t_img, projector_t2s)
+                z_t_txt = self._project_update(t_txt, projector_t2s)
 
                 mean_loss = F.mse_loss(z_s_img.mean(dim=0), z_t_img.mean(dim=0))
                 mean_loss = mean_loss + F.mse_loss(z_s_txt.mean(dim=0), z_t_txt.mean(dim=0))
