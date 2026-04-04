@@ -452,6 +452,13 @@ class RecursiveDistillationLoss(nn.Module):
 
         kd_loss = update_loss + self.attn_weight * attn_loss + self.contrastive_weight * contrastive_kd_loss
         loss = contrastive_loss + self.kd_loss_weight * kd_loss
+        # DDP safety: ensure all trainable projector params participate in graph,
+        # even when some branches/weights are disabled for a given batch.
+        projector_guard = loss.new_tensor(0.0)
+        for p in projectors.parameters():
+            if p.requires_grad:
+                projector_guard = projector_guard + p.sum() * 0.0
+        loss = loss + projector_guard
 
         return {
             "loss": loss,
