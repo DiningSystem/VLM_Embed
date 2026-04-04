@@ -168,7 +168,8 @@ class RecursiveDistillationLoss(nn.Module):
         # 1x1 conv mapping + shape alignment before MSE
         s = student_attn.unsqueeze(0).unsqueeze(0)  # (1,1,Nt,Nv)
         t = teacher_attn.unsqueeze(0).unsqueeze(0)
-        t_proj = self.attn_conv1(t)
+        conv_weight = self.attn_conv1.weight.to(device=t.device, dtype=t.dtype)
+        t_proj = F.conv2d(t, conv_weight, bias=None)
         t_proj = F.interpolate(t_proj, size=s.shape[-2:], mode="bilinear", align_corners=False)
         return F.mse_loss(s, t_proj)
 
