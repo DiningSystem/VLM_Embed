@@ -38,6 +38,7 @@ torchrun --standalone \
     --kd_weight 0.6 \
     --kd_loss_type "recursive_distillation_loss" \
     --recursive_num_steps 2 \
+    --recursive_backprop_steps 2 \
     --recursive_mean_weight 0.1 \
     --recursive_cov_weight 0.1 \
     --recursive_contrastive_weight 1.0 \
