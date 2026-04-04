@@ -252,8 +252,9 @@ class RecursiveDistillationLoss(nn.Module):
                 s_txt, s_img = get_hidden_text_vision(delta_s, s_num_text, s_num_vision, s_mask)
                 t_txt, t_img = get_hidden_text_vision(delta_t, t_num_text, t_num_vision, t_mask)
 
-                z_s_img = self._project_update(s_img, projectors.get("s2s"))
-                z_s_txt = self._project_update(s_txt, projectors.get("s2s"))
+                # student branch stays in student space; only teacher is projected to student space
+                z_s_img = self._project_update(s_img, None)
+                z_s_txt = self._project_update(s_txt, None)
                 z_t_img = self._project_update(t_img, projectors.get("t2s"))
                 z_t_txt = self._project_update(t_txt, projectors.get("t2s"))
 
