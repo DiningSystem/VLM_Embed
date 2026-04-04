@@ -38,6 +38,10 @@ class RecursiveDistillationLoss(nn.Module):
         self.cache_size = max(1, int(getattr(self.args, "recursive_kv_cache_size", 32)))
         self._teacher_cache = OrderedDict()
         self._student_eval_cache = OrderedDict()
+        # 1x1 conv mapping for attention alignment (teacher -> student space)
+        self.attn_conv1 = nn.Conv2d(1, 1, kernel_size=1, bias=False)
+        with torch.no_grad():
+            self.attn_conv1.weight.fill_(1.0)
 
         if dist.is_initialized():
             self.world_size = dist.get_world_size()
@@ -125,12 +129,22 @@ class RecursiveDistillationLoss(nn.Module):
         emb = emb[:dim].to(dtype=dtype)
         return emb.view(1, 1, dim)
 
-    def _extract_first_layer_text_to_vision(self, attn_list, n_text: int, n_vision: int, attn_mask: torch.Tensor):
+    def _extract_first_layer_text_to_vision(
+        self,
+        attn_list,
+        sample_idx: int,
+        n_text: int,
+        n_vision: int,
+        attn_mask: torch.Tensor,
+    ):
         if attn_list is None or len(attn_list) == 0:
             return None
 
         # first layer: (B, H, S, S)
         first_attn = attn_list[0]
+        if first_attn is None or first_attn.dim() != 4 or sample_idx >= first_attn.size(0):
+            return None
+        first_attn = first_attn[sample_idx]  # (H, S, S)
         left_padding = bool(attn_mask[0] == 0 and attn_mask[-1] == 1)
 
         if left_padding:
@@ -148,10 +162,14 @@ class RecursiveDistillationLoss(nn.Module):
         if student_attn is None or teacher_attn is None:
             return None
 
-        # shape align before MSE (proxy for projection+alignment)
+        if student_attn.dim() != 2 or teacher_attn.dim() != 2:
+            return None
+
+        # 1x1 conv mapping + shape alignment before MSE
         s = student_attn.unsqueeze(0).unsqueeze(0)  # (1,1,Nt,Nv)
         t = teacher_attn.unsqueeze(0).unsqueeze(0)
-        t_proj = F.interpolate(t, size=s.shape[-2:], mode="bilinear", align_corners=False)
+        t_proj = self.attn_conv1(t)
+        t_proj = F.interpolate(t_proj, size=s.shape[-2:], mode="bilinear", align_corners=False)
         return F.mse_loss(s, t_proj)
 
     def _covariance(self, z: torch.Tensor):
@@ -397,12 +415,14 @@ class RecursiveDistillationLoss(nn.Module):
                     continue
                 s_att = self._extract_first_layer_text_to_vision(
                     student_qry_attention,
+                    i,
                     int(s_text_counts[i].item()),
                     int(student_qry_image_features[i].size(0)),
                     student_qry_input["attention_mask"][i],
                 )
                 t_att = self._extract_first_layer_text_to_vision(
                     teacher_qry_attention,
+                    i,
                     int(t_text_counts[i].item()),
                     int(teacher_qry_image_features[i].size(0)),
                     teacher_qry_input["attention_mask"][i],
