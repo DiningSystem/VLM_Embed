@@ -42,6 +42,9 @@ class RecursiveDistillationLoss(nn.Module):
         self.attn_conv1 = nn.Conv2d(1, 1, kernel_size=1, bias=False)
         with torch.no_grad():
             self.attn_conv1.weight.fill_(1.0)
+        for p in self.attn_conv1.parameters():
+            p.requires_grad = False
+        self._frozen_unused_projectors = False
 
         if dist.is_initialized():
             self.world_size = dist.get_world_size()
@@ -316,6 +319,11 @@ class RecursiveDistillationLoss(nn.Module):
         student_model = distiller.student
         teacher_model = distiller.teacher
         projectors = distiller.projectors
+
+        if (not self._frozen_unused_projectors) and ("s2s" in projectors):
+            for p in projectors["s2s"].parameters():
+                p.requires_grad = False
+            self._frozen_unused_projectors = True
 
         if getattr(self, "student_processor", None) is None:
             self.student_processor = distiller.get_student_processor()
