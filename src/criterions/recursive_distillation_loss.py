@@ -85,25 +85,33 @@ class RecursiveDistillationLoss(nn.Module):
         while len(cache) > self.cache_size:
             cache.popitem(last=False)
 
-    def _encode_with_cache(self, model, model_tag: str, input_data: dict, enable_grad: bool):
+    def _encode_with_cache(
+        self,
+        model,
+        model_tag: str,
+        input_data: dict,
+        enable_grad: bool,
+        output_attentions: bool = True,
+    ):
         if not self.enable_kv_cache:
             if enable_grad:
-                return model.encode_input(input_data)
+                return model.encode_input(input_data, output_attentions=output_attentions)
             with torch.no_grad():
-                return model.encode_input(input_data)
+                return model.encode_input(input_data, output_attentions=output_attentions)
 
         # only cache teacher always + student in eval mode (no grad path)
         if enable_grad:
-            return model.encode_input(input_data)
+            return model.encode_input(input_data, output_attentions=output_attentions)
 
         cache = self._student_eval_cache if model_tag.startswith("student_eval") else self._teacher_cache
         key = self._cache_key(model_tag, input_data)
+        key = f"{key}|attn={int(output_attentions)}"
         if key in cache:
             cache.move_to_end(key)
             return cache[key]
 
         with torch.no_grad():
-            output = model.encode_input(input_data)
+            output = model.encode_input(input_data, output_attentions=output_attentions)
         self._put_cache(cache, key, output)
         return output
 
@@ -208,6 +216,7 @@ class RecursiveDistillationLoss(nn.Module):
                 step_tag,
                 student_input,
                 enable_grad=grad_enabled_step,
+                output_attentions=False,
             )
             _, _, _, step_hidden = step_output
             final_reps = step_output[0]
@@ -336,8 +345,20 @@ class RecursiveDistillationLoss(nn.Module):
         teacher_pos_input = input_data["teacher_inputs"]["pos"]
 
         teacher_model.eval()
-        teacher_qry_output = self._encode_with_cache(teacher_model, "teacher_qry", teacher_qry_input, enable_grad=False)
-        teacher_pos_output = self._encode_with_cache(teacher_model, "teacher_pos", teacher_pos_input, enable_grad=False)
+        teacher_qry_output = self._encode_with_cache(
+            teacher_model,
+            "teacher_qry",
+            teacher_qry_input,
+            enable_grad=False,
+            output_attentions=True,
+        )
+        teacher_pos_output = self._encode_with_cache(
+            teacher_model,
+            "teacher_pos",
+            teacher_pos_input,
+            enable_grad=False,
+            output_attentions=False,
+        )
 
         student_eval_cache_ok = not student_model.training
         student_qry_output = self._encode_with_cache(
@@ -345,12 +366,14 @@ class RecursiveDistillationLoss(nn.Module):
             "student_eval_qry_base" if student_eval_cache_ok else "student_train_qry_base",
             student_qry_input,
             enable_grad=not student_eval_cache_ok,
+            output_attentions=True,
         )
         student_pos_output = self._encode_with_cache(
             student_model,
             "student_eval_pos_base" if student_eval_cache_ok else "student_train_pos_base",
             student_pos_input,
             enable_grad=not student_eval_cache_ok,
+            output_attentions=False,
         )
 
         teacher_qry_reps, teacher_qry_image_features, teacher_qry_attention, teacher_qry_hidden_states = teacher_qry_output
