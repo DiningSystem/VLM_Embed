@@ -123,7 +123,7 @@ class TrainingArguments(TrainingArguments):
     )
     w_cross_modal_loss: float = field(default=1.0, metadata={"help": "weight for cross modal loss"})
     recursive_num_steps: int = field(default=6, metadata={"help": "number of recursive distillation steps"})
-    recursive_backprop_steps: int = field(default=2, metadata={"help": "number of last recursive steps to keep gradients for (memory optimization)"})
+    recursive_backprop_steps: int = field(default=1, metadata={"help": "number of last recursive steps to keep gradients for (memory optimization)"})
     recursive_mean_weight: float = field(default=1.0, metadata={"help": "mean term weight in recursive update loss"})
     recursive_cov_weight: float = field(default=0.1, metadata={"help": "covariance term weight in recursive update loss"})
     recursive_contrastive_weight: float = field(default=1.0, metadata={"help": "weight for recursive contrastive KD term"})

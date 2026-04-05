@@ -195,7 +195,14 @@ class RecursiveDistillationLoss(nn.Module):
             return delta
         return projector(delta)
 
-    def _recursive_student_updates(self, student_model, student_input, base_output, k_steps: int):
+    def _recursive_student_updates(
+        self,
+        student_model,
+        student_input,
+        base_output,
+        k_steps: int,
+        capture_first_step_attn: bool = False,
+    ):
         """
         Build recursive student token states:
             X^{k+1} = X^k + f_theta(X^k + e_k)
@@ -208,6 +215,8 @@ class RecursiveDistillationLoss(nn.Module):
 
         student_eval_cache_ok = not student_model.training
         final_reps = base_output[0]
+        first_step_attention = None
+        first_step_image_features = None
         for k in range(1, k_steps + 1):
             grad_enabled_step = (not student_eval_cache_ok) and (k > k_steps - self.backprop_steps)
             step_tag = f"student_eval_step_{k}" if student_eval_cache_ok else f"student_train_step_{k}"
@@ -216,10 +225,13 @@ class RecursiveDistillationLoss(nn.Module):
                 step_tag,
                 student_input,
                 enable_grad=grad_enabled_step,
-                output_attentions=False,
+                output_attentions=(capture_first_step_attn and k == 1),
             )
-            _, _, _, step_hidden = step_output
+            _, step_image_features, step_attention, step_hidden = step_output
             final_reps = step_output[0]
+            if capture_first_step_attn and k == 1:
+                first_step_attention = step_attention
+                first_step_image_features = step_image_features
             f_theta_out = step_hidden[-1]  # one full pass output
 
             e_k = self._step_embedding(k, f_theta_out.size(-1), f_theta_out.device, f_theta_out.dtype)
@@ -231,7 +243,7 @@ class RecursiveDistillationLoss(nn.Module):
             updates.append(update)
             x_prev = x_next
 
-        return updates, final_reps
+        return updates, final_reps, first_step_attention, first_step_image_features
 
     def _update_loss_for_side(
         self,
@@ -333,6 +345,15 @@ class RecursiveDistillationLoss(nn.Module):
             for p in projectors["s2s"].parameters():
                 p.requires_grad = False
             self._frozen_unused_projectors = True
+        if student_model.training and (not getattr(self, "_gc_enabled", False)):
+            if hasattr(student_model.encoder, "gradient_checkpointing_enable"):
+                try:
+                    student_model.encoder.gradient_checkpointing_enable()
+                    if hasattr(student_model.encoder, "config"):
+                        student_model.encoder.config.use_cache = False
+                except Exception:
+                    pass
+            self._gc_enabled = True
 
         if getattr(self, "student_processor", None) is None:
             self.student_processor = distiller.get_student_processor()
@@ -365,14 +386,14 @@ class RecursiveDistillationLoss(nn.Module):
             student_model,
             "student_eval_qry_base" if student_eval_cache_ok else "student_train_qry_base",
             student_qry_input,
-            enable_grad=not student_eval_cache_ok,
+            enable_grad=False,
             output_attentions=True,
         )
         student_pos_output = self._encode_with_cache(
             student_model,
             "student_eval_pos_base" if student_eval_cache_ok else "student_train_pos_base",
             student_pos_input,
-            enable_grad=not student_eval_cache_ok,
+            enable_grad=False,
             output_attentions=False,
         )
 
@@ -381,11 +402,11 @@ class RecursiveDistillationLoss(nn.Module):
         student_qry_reps, student_qry_image_features, student_qry_attention, _ = student_qry_output
         student_pos_reps, student_pos_image_features, student_pos_attention, _ = student_pos_output
 
-        recursive_qry_updates, final_student_qry_reps = self._recursive_student_updates(
-            student_model, student_qry_input, student_qry_output, self.num_steps
+        recursive_qry_updates, final_student_qry_reps, _, _ = self._recursive_student_updates(
+            student_model, student_qry_input, student_qry_output, self.num_steps, capture_first_step_attn=False
         )
-        recursive_pos_updates, final_student_pos_reps = self._recursive_student_updates(
-            student_model, student_pos_input, student_pos_output, self.num_steps
+        recursive_pos_updates, final_student_pos_reps, _, _ = self._recursive_student_updates(
+            student_model, student_pos_input, student_pos_output, self.num_steps, capture_first_step_attn=False
         )
 
         if self.world_size > 1:
