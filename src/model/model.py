@@ -52,7 +52,7 @@ class MMEBModel(nn.Module):
         # for z pooling
         self.vision_weight = 0.6
 
-    def encode_input(self, input):
+    def encode_input(self, input, output_attentions: bool = True):
         INTERNVIDEO2 = "internvideo2"
         if getattr(self, "model_backbone", None) == INTERNVIDEO2:
             if "input_ids" in input.keys():
@@ -124,7 +124,12 @@ class MMEBModel(nn.Module):
             if hasattr(input, 'pixel_values'):
                 input['pixel_values'] = input['pixel_values'].squeeze(1)
                 input['image_sizes'] = input['image_sizes'].squeeze(1)
-            hidden_states = self.encoder(**input, return_dict=True, output_hidden_states=True, output_attentions=True)
+            hidden_states = self.encoder(
+                **input,
+                return_dict=True,
+                output_hidden_states=True,
+                output_attentions=output_attentions,
+            )
             # add for image feature
             if hasattr(hidden_states, 'batch_image_embeds'):
                 image_features = hidden_states.batch_image_embeds
@@ -138,7 +143,12 @@ class MMEBModel(nn.Module):
             return pooled_output, image_features, attention_matrix, output_hidden_states
         elif getattr(self, "model_backbone", None) in [LLAVA_QWEN2, QWEN2_VL]:
             # print("Encoding input for FastVLM model backbone")
-            hidden_states = self.encoder(**input, return_dict=True, output_hidden_states=True, output_attentions=True)
+            hidden_states = self.encoder(
+                **input,
+                return_dict=True,
+                output_hidden_states=True,
+                output_attentions=output_attentions,
+            )
             if hasattr(hidden_states, 'batch_image_embeds'):
                 image_features = hidden_states.batch_image_embeds
             else: 
@@ -151,7 +161,12 @@ class MMEBModel(nn.Module):
             return pooled_output, image_features, attention_matrix, output_hidden_states
         else:
             # import ipdb; ipdb.set_trace()
-            hidden_states = self.encoder(**input, return_dict=True, output_hidden_states=True, output_attentions=True)
+            hidden_states = self.encoder(
+                **input,
+                return_dict=True,
+                output_hidden_states=True,
+                output_attentions=output_attentions,
+            )
             if hasattr(hidden_states, 'batch_image_embeds'):
                 image_features = hidden_states.batch_image_embeds
             else: 
