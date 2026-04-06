@@ -107,20 +107,32 @@ def encode_representations(model, batch, side: str, recursive_eval_steps: int = 
         output = model(qry=batch) if side == "qry" else model(tgt=batch)
         return output["qry_reps"] if side == "qry" else output["tgt_reps"]
 
-    base_output = model.encode_input(batch, output_attentions=False)
-    final_reps = base_output[0]
-    _, _, _, hidden_states = base_output
-    x_prev = hidden_states[0]
+    # Build x_0 from the embedding-layer hidden states of the original pass.
+    _, _, _, hidden_states = model.encode_input(batch, output_attentions=False)
+    x_k = hidden_states[0]
+    attention_mask = batch["attention_mask"]
 
-    for k in range(1, recursive_eval_steps + 1):
-        step_output = model.encode_input(batch, output_attentions=False)
-        final_reps = step_output[0]
-        f_theta_out = step_output[3][-1]
-        e_k = _step_embedding(k, f_theta_out.size(-1), f_theta_out.device, f_theta_out.dtype)
-        update = f_theta_out + e_k
-        x_prev = x_prev + update
+    for k in range(recursive_eval_steps):
+        e_k = _step_embedding(k, x_k.size(-1), x_k.device, x_k.dtype)
+        step_input = {
+            "inputs_embeds": x_k + e_k,
+            "attention_mask": attention_mask,
+        }
+        for key in ("position_ids", "cache_position", "image_grid_thw", "image_sizes", "rope_deltas"):
+            if key in batch:
+                step_input[key] = batch[key]
 
-    return final_reps
+        step_output = model.encode_input(step_input, output_attentions=False)
+        f_x = step_output[3][-1]
+
+        if k == 0:
+            # First pass: x_1 = f(x_0 + e_0)
+            x_k = f_x
+        else:
+            # Starting from second pass: x_{k+1} = x_k + f(x_k + e_k)
+            x_k = x_k + f_x
+
+    return model._pooling(x_k, attention_mask)
 
 @contextmanager
 def time_block(name):
