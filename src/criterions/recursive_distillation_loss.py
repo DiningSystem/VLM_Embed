@@ -124,8 +124,16 @@ class RecursiveDistillationLoss(nn.Module):
             idxs.append(max(1, min(idx, max_idx)))
         return idxs
 
-    def _step_embedding(self, step: int, dim: int, device, dtype):
+    def _step_embedding(self, step: int, dim: int, device, dtype, learned_step_embeddings=None):
+        if learned_step_embeddings is not None:
+            step = int(step)
+            max_step = learned_step_embeddings.num_embeddings - 1
+            step_idx = min(max(step, 0), max_step)
+            learned = learned_step_embeddings.weight[step_idx].to(device=device, dtype=dtype)
+            return learned.view(1, 1, dim)
         # deterministic sinusoidal step embedding, shape (1, 1, dim)
+        # NOTE: this is generated on-the-fly (non-trainable), so there is no
+        # recursive step-embedding parameter to save into checkpoints.
         half = dim // 2
         if half == 0:
             return torch.zeros(1, 1, dim, device=device, dtype=dtype)
@@ -201,47 +209,63 @@ class RecursiveDistillationLoss(nn.Module):
         student_input,
         base_output,
         k_steps: int,
+        learned_step_embeddings=None,
         capture_first_step_attn: bool = False,
     ):
         """
         Build recursive student token states:
-            X^{k+1} = X^k + f_theta(X^k + e_k)
+            X^{k+1} = f_theta(X^k + e_k)
 
         Here f_theta is one *full* student forward pass each step.
         """
         _, _, _, hidden_states = base_output
-        x_prev = hidden_states[0]  # (B, S, D), proxy for X^0
-        updates = []
+        x_prev = hidden_states[-1]  # (B, S, D), X^0 from encoder output states
+        updates = [torch.zeros_like(x_prev)]
 
         student_eval_cache_ok = not student_model.training
-        final_reps = base_output[0]
+        attention_mask = student_input["attention_mask"]
+        final_reps = base_output[0]  # first pass comes from encoder output projection
         first_step_attention = None
         first_step_image_features = None
-        for k in range(1, k_steps + 1):
-            grad_enabled_step = (not student_eval_cache_ok) and (k > k_steps - self.backprop_steps)
-            step_tag = f"student_eval_step_{k}" if student_eval_cache_ok else f"student_train_step_{k}"
+        for k in range(1, k_steps):
+            grad_enabled_step = (not student_eval_cache_ok) and (k >= k_steps - self.backprop_steps)
+            step_tag = f"student_eval_step_{k+1}" if student_eval_cache_ok else f"student_train_step_{k+1}"
+
+            e_k = self._step_embedding(
+                k,
+                x_prev.size(-1),
+                x_prev.device,
+                x_prev.dtype,
+                learned_step_embeddings=learned_step_embeddings,
+            )
+            step_input = {
+                "inputs_embeds": x_prev + e_k,
+                "attention_mask": attention_mask,
+            }
+            for key in ("position_ids", "cache_position", "image_grid_thw", "image_sizes", "rope_deltas"):
+                if key in student_input:
+                    step_input[key] = student_input[key]
+
             step_output = self._encode_with_cache(
                 student_model,
                 step_tag,
-                student_input,
+                step_input,
                 enable_grad=grad_enabled_step,
                 output_attentions=(capture_first_step_attn and k == 1),
             )
             _, step_image_features, step_attention, step_hidden = step_output
-            final_reps = step_output[0]
             if capture_first_step_attn and k == 1:
                 first_step_attention = step_attention
                 first_step_image_features = step_image_features
-            f_theta_out = step_hidden[-1]  # one full pass output
+            f_theta_out = step_hidden[-1]
 
-            e_k = self._step_embedding(k, f_theta_out.size(-1), f_theta_out.device, f_theta_out.dtype)
-            # f_theta(X^k + e_k) -- conditioning via step embedding (broadcast over tokens)
-            update = f_theta_out + e_k
+            x_next = f_theta_out
+            update = x_next - x_prev
             if not grad_enabled_step:
                 update = update.detach()
-            x_next = x_prev + update
             updates.append(update)
             x_prev = x_next
+            final_reps = student_model._pooling(x_prev, attention_mask)
 
         return updates, final_reps, first_step_attention, first_step_image_features
 
@@ -340,6 +364,12 @@ class RecursiveDistillationLoss(nn.Module):
         student_model = distiller.student
         teacher_model = distiller.teacher
         projectors = distiller.projectors
+        if not hasattr(self, "_step_embedding_mode_logged"):
+            self._step_embedding_mode_logged = True
+            if getattr(distiller, "recursive_step_embeddings", None) is None:
+                print("[RecursiveDistillationLoss] using sinusoidal step embeddings.")
+            else:
+                print("[RecursiveDistillationLoss] using learned recursive step embeddings.")
 
         if (not self._frozen_unused_projectors) and ("s2s" in projectors):
             for p in projectors["s2s"].parameters():
@@ -403,10 +433,20 @@ class RecursiveDistillationLoss(nn.Module):
         student_pos_reps, student_pos_image_features, student_pos_attention, _ = student_pos_output
 
         recursive_qry_updates, final_student_qry_reps, _, _ = self._recursive_student_updates(
-            student_model, student_qry_input, student_qry_output, self.num_steps, capture_first_step_attn=False
+            student_model,
+            student_qry_input,
+            student_qry_output,
+            self.num_steps,
+            learned_step_embeddings=getattr(distiller, "recursive_step_embeddings", None),
+            capture_first_step_attn=False,
         )
         recursive_pos_updates, final_student_pos_reps, _, _ = self._recursive_student_updates(
-            student_model, student_pos_input, student_pos_output, self.num_steps, capture_first_step_attn=False
+            student_model,
+            student_pos_input,
+            student_pos_output,
+            self.num_steps,
+            learned_step_embeddings=getattr(distiller, "recursive_step_embeddings", None),
+            capture_first_step_attn=False,
         )
 
         if self.world_size > 1:
@@ -502,7 +542,13 @@ class RecursiveDistillationLoss(nn.Module):
         for p in projectors.parameters():
             if p.requires_grad:
                 projector_guard = projector_guard + p.sum() * 0.0
-        loss = loss + projector_guard
+        step_emb_guard = loss.new_tensor(0.0)
+        step_emb_module = getattr(distiller, "recursive_step_embeddings", None)
+        if step_emb_module is not None:
+            for p in step_emb_module.parameters():
+                if p.requires_grad:
+                    step_emb_guard = step_emb_guard + p.sum() * 0.0
+        loss = loss + projector_guard + step_emb_guard
 
         return {
             "loss": loss,
