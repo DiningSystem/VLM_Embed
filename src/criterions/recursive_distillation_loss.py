@@ -542,7 +542,13 @@ class RecursiveDistillationLoss(nn.Module):
         for p in projectors.parameters():
             if p.requires_grad:
                 projector_guard = projector_guard + p.sum() * 0.0
-        loss = loss + projector_guard
+        step_emb_guard = loss.new_tensor(0.0)
+        step_emb_module = getattr(distiller, "recursive_step_embeddings", None)
+        if step_emb_module is not None:
+            for p in step_emb_module.parameters():
+                if p.requires_grad:
+                    step_emb_guard = step_emb_guard + p.sum() * 0.0
+        loss = loss + projector_guard + step_emb_guard
 
         return {
             "loss": loss,
