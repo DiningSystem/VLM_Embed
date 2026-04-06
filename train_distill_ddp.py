@@ -214,6 +214,15 @@ class Trainer:
             batch_er_kd_loss = sum(er_kd_losses) / len(er_kd_losses)
             
             loss.backward()
+            if hasattr(self.distiller.module, "recursive_step_embeddings") and self.distiller.module.recursive_step_embeddings is not None:
+                for name, p in self.distiller.module.recursive_step_embeddings.named_parameters():
+                    if p.requires_grad and p.grad is None:
+                        raise RuntimeError(f"Missing grad for recursive_step_embeddings.{name}")
+            if hasattr(self.distiller.module, "projectors") and self.distiller.module.projectors is not None:
+                for name, p in self.distiller.module.projectors.named_parameters():
+                    if p.requires_grad and p.grad is None:
+                        raise RuntimeError(f"Missing grad for projectors.{name}")
+
             if (batch_idx + 1) % self.training_args.gradient_accumulation_steps == 0:
                 self.optimizer.step()
                 self.lr_scheduler.step()
