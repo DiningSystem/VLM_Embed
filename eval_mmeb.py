@@ -84,6 +84,56 @@ def batch_to_device(batch, device):
             _batch[key] = value
     return _batch
 
+
+def _step_embedding(step: int, dim: int, device, dtype):
+    half = dim // 2
+    if half == 0:
+        return torch.zeros(1, 1, dim, device=device, dtype=dtype)
+
+    pos = torch.tensor(float(step), device=device, dtype=torch.float32)
+    freq = torch.arange(half, device=device, dtype=torch.float32)
+    freq = torch.exp(-torch.log(torch.tensor(10000.0, device=device)) * freq / max(1, half - 1))
+    angle = pos * freq
+    emb = torch.cat([torch.sin(angle), torch.cos(angle)], dim=0)
+    if emb.numel() < dim:
+        emb = torch.cat([emb, emb.new_zeros(dim - emb.numel())], dim=0)
+    emb = emb[:dim].to(dtype=dtype)
+    return emb.view(1, 1, dim)
+
+
+def encode_representations(model, batch, side: str, recursive_eval_steps: int = 1):
+    recursive_eval_steps = max(1, int(recursive_eval_steps))
+    if recursive_eval_steps == 1:
+        output = model(qry=batch) if side == "qry" else model(tgt=batch)
+        return output["qry_reps"] if side == "qry" else output["tgt_reps"]
+
+    # Build x_0 from the embedding-layer hidden states of the original pass.
+    _, _, _, hidden_states = model.encode_input(batch, output_attentions=False)
+    x_k = hidden_states[0]
+    attention_mask = batch["attention_mask"]
+
+    for k in range(recursive_eval_steps):
+        e_k = _step_embedding(k, x_k.size(-1), x_k.device, x_k.dtype)
+        step_input = {
+            "inputs_embeds": x_k + e_k,
+            "attention_mask": attention_mask,
+        }
+        for key in ("position_ids", "cache_position", "image_grid_thw", "image_sizes", "rope_deltas"):
+            if key in batch:
+                step_input[key] = batch[key]
+
+        step_output = model.encode_input(step_input, output_attentions=False)
+        f_x = step_output[3][-1]
+
+        if k == 0:
+            # First pass: x_1 = f(x_0 + e_0)
+            x_k = f_x
+        else:
+            # Starting from second pass: x_{k+1} = x_k + f(x_k + e_k)
+            x_k = x_k + f_x
+
+    return model._pooling(x_k, attention_mask)
+
 @contextmanager
 def time_block(name):
     start = time.time()
@@ -103,6 +153,8 @@ def main():
     model_args, data_args, training_args = parser.parse_args_into_dataclasses()
     
     seed_everything(training_args.seed)
+    recursive_eval_steps = max(1, int(getattr(training_args, "recursive_eval_steps", 1)))
+    print_rank(f"recursive_eval_steps: {recursive_eval_steps}")
      
     use_wandb = False
     is_main_process = training_args.local_rank in [-1, 0]
@@ -214,8 +266,13 @@ def main():
                 for batch in tqdm(eval_qry_loader, desc=f"Encode query - {subset}"):
                     batch = batch_to_device(batch, training_args.device)
                     with torch.autocast(enabled=True, dtype=torch.bfloat16, device_type="cuda"):
-                        output = model(qry=batch)
-                    encoded_tensor.append(output["qry_reps"].cpu().detach().float())
+                        reps = encode_representations(
+                            model=model,
+                            batch=batch,
+                            side="qry",
+                            recursive_eval_steps=recursive_eval_steps,
+                        )
+                    encoded_tensor.append(reps.cpu().detach().float())
             encoded_tensor = np.concatenate(encoded_tensor)
             with open(encode_qry_path, 'wb') as f:
                 pickle.dump((encoded_tensor, eval_qry_dataset.paired_data), f)
@@ -228,8 +285,13 @@ def main():
                     batch = batch_to_device(batch, training_args.device)
                     with torch.autocast(enabled=True, dtype=torch.bfloat16, device_type="cuda"):
                     # print(batch['pixel_values'].shape)
-                        output = model(tgt=batch)
-                    encoded_tensor.append(output["tgt_reps"].cpu().detach().float())
+                        reps = encode_representations(
+                            model=model,
+                            batch=batch,
+                            side="tgt",
+                            recursive_eval_steps=recursive_eval_steps,
+                        )
+                    encoded_tensor.append(reps.cpu().detach().float())
             encoded_tensor = np.concatenate(encoded_tensor)
             with open(encode_tgt_path, 'wb') as f:
                 pickle.dump((encoded_tensor, eval_tgt_dataset.paired_data), f)
