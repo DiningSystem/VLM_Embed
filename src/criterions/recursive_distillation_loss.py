@@ -126,6 +126,8 @@ class RecursiveDistillationLoss(nn.Module):
 
     def _step_embedding(self, step: int, dim: int, device, dtype):
         # deterministic sinusoidal step embedding, shape (1, 1, dim)
+        # NOTE: this is generated on-the-fly (non-trainable), so there is no
+        # recursive step-embedding parameter to save into checkpoints.
         half = dim // 2
         if half == 0:
             return torch.zeros(1, 1, dim, device=device, dtype=dtype)
