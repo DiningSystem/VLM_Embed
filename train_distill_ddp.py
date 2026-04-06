@@ -116,7 +116,11 @@ class Trainer:
         self.training_args = training_args
         self.data_args = data_args
         
-        self.distiller = DDP(self.distiller, device_ids=[self.gpu_id])
+        self.distiller = DDP(
+            self.distiller,
+            device_ids=[self.gpu_id],
+            find_unused_parameters=True,
+        )
 
         # <--- [THÊM] Logic kiểm tra report_to="wandb"
         self.use_wandb = False
