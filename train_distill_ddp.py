@@ -116,7 +116,11 @@ class Trainer:
         self.training_args = training_args
         self.data_args = data_args
         
-        self.distiller = DDP(self.distiller, device_ids=[self.gpu_id])
+        self.distiller = DDP(
+            self.distiller,
+            device_ids=[self.gpu_id],
+            find_unused_parameters=True,
+        )
 
         # <--- [THÊM] Logic kiểm tra report_to="wandb"
         self.use_wandb = False
@@ -276,9 +280,11 @@ class Trainer:
                 ckpt_dir = os.path.join(self.training_args.output_dir, f"checkpoint-epoch-{epoch}")
                 projector_dir = os.path.join(ckpt_dir, "mm_projector.pth")
                 distill_projector_dir = os.path.join(ckpt_dir, "distill_projectors.pth")
+                recursive_step_emb_dir = os.path.join(ckpt_dir, "recursive_step_embeddings.pth")
                 os.makedirs(ckpt_dir, exist_ok=True)
 
                 self.distiller.module.save_projectors(distill_projector_dir)
+                self.distiller.module.save_recursive_step_embeddings(recursive_step_emb_dir)
                 
                 student = self.distiller.module.student
                 student.encoder.save_pretrained(ckpt_dir)
@@ -310,8 +316,10 @@ class Trainer:
             final_ckpt_dir = os.path.join(self.training_args.output_dir, f"checkpoint-final")
             projector_dir =  os.path.join(final_ckpt_dir, "mm_projector.pth")
             distill_projector_dir = os.path.join(final_ckpt_dir, "distill_projectors.pth")
+            recursive_step_emb_dir = os.path.join(final_ckpt_dir, "recursive_step_embeddings.pth")
             os.makedirs(final_ckpt_dir, exist_ok=True)
             self.distiller.module.save_projectors(distill_projector_dir)
+            self.distiller.module.save_recursive_step_embeddings(recursive_step_emb_dir)
             student = self.distiller.module.student
             student.encoder.save_pretrained(final_ckpt_dir)
             if self.model_args.model_backbone in ["llava_onevision", "llava_two_vision"]:
@@ -403,6 +411,7 @@ def main():
     total_steps = (len(train_dataloader.dataset) // (training_args.per_device_train_batch_size * dist.get_world_size()) // training_args.gradient_accumulation_steps) * training_args.num_train_epochs
     if model_args.projector_config_path is not None:
         optimizer = distiller.add_optimizer_param_group(optimizer)
+    optimizer = distiller.add_recursive_step_embedding_param_group(optimizer)
 
     print("Number of trainable parameters:", sum(p.numel() for p in optimizer.param_groups[0]['params'] if p.requires_grad))
 

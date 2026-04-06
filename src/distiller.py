@@ -125,6 +125,7 @@ class Distiller(nn.Module):
         self.tokenizer = AutoTokenizer.from_pretrained(self.model_args.teacher_model_name)
         # if self.model_args.projector_config_path is not None:
         self.set_projector()
+        self._init_recursive_step_embeddings()
         print("Projectors set.")
     
     def _create_model_args(self, model_type='teacher'):
@@ -255,6 +256,17 @@ class Distiller(nn.Module):
 
             self.projectors = projector_list
         print(f"Created {len(self.projectors)} linear projectors.")
+
+    def _init_recursive_step_embeddings(self):
+        self.recursive_step_embeddings = None
+        if getattr(self.training_args, "kd_loss_type", None) != "recursive_distillation_loss":
+            return
+        num_steps = max(1, int(getattr(self.training_args, "recursive_num_steps", 1)))
+        num_embeddings = num_steps + 1  # include e_0
+        emb = nn.Embedding(num_embeddings, self.student_hidden_dim, dtype=torch.bfloat16)
+        nn.init.normal_(emb.weight, mean=0.0, std=0.02)
+        self.recursive_step_embeddings = emb
+        print(f"Initialized recursive step embeddings: {num_embeddings} x {self.student_hidden_dim}")
     
     def add_optimizer_param_group(self, optimizer):
         if hasattr(self, 'projectors') and self.projectors is not None:
@@ -276,6 +288,16 @@ class Distiller(nn.Module):
             print("Modality gated pooling parameters added to optimizer.")
         return optimizer
 
+    def add_recursive_step_embedding_param_group(self, optimizer):
+        if getattr(self, "recursive_step_embeddings", None) is None:
+            return optimizer
+        optimizer.add_param_group({
+            "params": self.recursive_step_embeddings.parameters(),
+            "lr": self.training_args.learning_rate,
+        })
+        print("Recursive step embedding parameters added to optimizer.")
+        return optimizer
+
     def save_projectors(self, output_path: str):
         if not hasattr(self, 'projectors') or self.projectors is None:
             print_rank("No distillation projector found to save.")
@@ -287,6 +309,18 @@ class Distiller(nn.Module):
 
         torch.save(self.projectors.state_dict(), output_path)
         print_rank(f"Saved distillation projectors to {output_path}")
+        return True
+
+    def save_recursive_step_embeddings(self, output_path: str):
+        if getattr(self, "recursive_step_embeddings", None) is None:
+            return False
+
+        output_dir = os.path.dirname(output_path)
+        if output_dir:
+            os.makedirs(output_dir, exist_ok=True)
+
+        torch.save({"weight": self.recursive_step_embeddings.weight.detach().cpu()}, output_path)
+        print_rank(f"Saved recursive step embeddings to {output_path}")
         return True
 
 class DistillationCollator:    
