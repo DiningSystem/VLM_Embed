@@ -125,6 +125,7 @@ class Distiller(nn.Module):
         self.tokenizer = AutoTokenizer.from_pretrained(self.model_args.teacher_model_name)
         # if self.model_args.projector_config_path is not None:
         self.set_projector()
+        self._init_recursive_step_embeddings()
         print("Projectors set.")
     
     def _create_model_args(self, model_type='teacher'):
@@ -274,6 +275,16 @@ class Distiller(nn.Module):
                 "lr": self.training_args.learning_rate
             })
             print("Modality gated pooling parameters added to optimizer.")
+        return optimizer
+
+    def add_recursive_step_embedding_param_group(self, optimizer):
+        if getattr(self, "recursive_step_embeddings", None) is None:
+            return optimizer
+        optimizer.add_param_group({
+            "params": self.recursive_step_embeddings.parameters(),
+            "lr": self.training_args.learning_rate,
+        })
+        print("Recursive step embedding parameters added to optimizer.")
         return optimizer
 
     def save_projectors(self, output_path: str):
