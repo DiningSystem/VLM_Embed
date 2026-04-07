@@ -116,7 +116,11 @@ class Trainer:
         self.training_args = training_args
         self.data_args = data_args
         
-        self.distiller = DDP(self.distiller, device_ids=[self.gpu_id])
+        self.distiller = DDP(
+            self.distiller,
+            device_ids=[self.gpu_id],
+            find_unused_parameters=True,
+        )
 
         # <--- [THÊM] Logic kiểm tra report_to="wandb"
         self.use_wandb = False
@@ -211,6 +215,10 @@ class Trainer:
             
             loss.backward()
             if (batch_idx + 1) % self.training_args.gradient_accumulation_steps == 0:
+                if hasattr(self.distiller.module, "projectors") and self.distiller.module.projectors is not None:
+                    for name, p in self.distiller.module.projectors.named_parameters():
+                        if p.requires_grad and p.grad is None:
+                            raise RuntimeError(f"Missing grad for projectors.{name}")
                 self.optimizer.step()
                 self.lr_scheduler.step()
                 self.optimizer.zero_grad()

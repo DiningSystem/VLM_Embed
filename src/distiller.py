@@ -255,7 +255,7 @@ class Distiller(nn.Module):
 
             self.projectors = projector_list
         print(f"Created {len(self.projectors)} linear projectors.")
-    
+
     def add_optimizer_param_group(self, optimizer):
         if hasattr(self, 'projectors') and self.projectors is not None:
             lr = getattr(self.training_args, "projector_lr", None) or self.training_args.learning_rate
@@ -288,6 +288,7 @@ class Distiller(nn.Module):
         torch.save(self.projectors.state_dict(), output_path)
         print_rank(f"Saved distillation projectors to {output_path}")
         return True
+
 
 class DistillationCollator:    
     def __init__(self, student_processor: ProcessorMixin, teacher_processor: ProcessorMixin,
