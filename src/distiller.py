@@ -127,6 +127,11 @@ class Distiller(nn.Module):
         self.set_projector()
         self._init_recursive_step_embeddings()
         print("Projectors set.")
+
+    # Compatibility shim: kept only to avoid breaking old callers/scripts.
+    # Recursive step embeddings are sinusoidal and non-parameterized now.
+    def _init_recursive_step_embeddings(self):
+        return None
     
     def _create_model_args(self, model_type='teacher'):
         if model_type == 'teacher': 
