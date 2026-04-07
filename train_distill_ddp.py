@@ -224,6 +224,8 @@ class Trainer:
                         raise RuntimeError(f"Missing grad for projectors.{name}")
 
             if (batch_idx + 1) % self.training_args.gradient_accumulation_steps == 0:
+                # NOTE: recursive step embeddings are sinusoidal/non-parameterized now,
+                # so only projector trainable params are explicitly checked here.
                 if hasattr(self.distiller.module, "projectors") and self.distiller.module.projectors is not None:
                     for name, p in self.distiller.module.projectors.named_parameters():
                         if p.requires_grad and p.grad is None:
