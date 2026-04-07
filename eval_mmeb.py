@@ -85,10 +85,7 @@ def batch_to_device(batch, device):
     return _batch
 
 
-def _step_embedding(step: int, dim: int, device, dtype, learned_step_embeddings=None):
-    if learned_step_embeddings is not None:
-        step_idx = min(max(int(step), 0), learned_step_embeddings.size(0) - 1)
-        return learned_step_embeddings[step_idx].to(device=device, dtype=dtype).view(1, 1, dim)
+def _step_embedding(step: int, dim: int, device, dtype):
     half = dim // 2
     if half == 0:
         return torch.zeros(1, 1, dim, device=device, dtype=dtype)
@@ -104,7 +101,7 @@ def _step_embedding(step: int, dim: int, device, dtype, learned_step_embeddings=
     return emb.view(1, 1, dim)
 
 
-def encode_representations(model, batch, side: str, recursive_eval_steps: int = 1, learned_step_embeddings=None):
+def encode_representations(model, batch, side: str, recursive_eval_steps: int = 1):
     recursive_eval_steps = max(1, int(recursive_eval_steps))
     if recursive_eval_steps == 1:
         output = model(qry=batch) if side == "qry" else model(tgt=batch)
@@ -115,15 +112,14 @@ def encode_representations(model, batch, side: str, recursive_eval_steps: int = 
     _, _, _, hidden_states = base_output
     x_k = hidden_states[-1]
     attention_mask = batch["attention_mask"]
-    final_reps = base_output[0]  # first pass from encoder output projection
+    final_reps = base_output[0]
 
-    for k in range(1, recursive_eval_steps):
+    for k in range(recursive_eval_steps):
         e_k = _step_embedding(
             k,
             x_k.size(-1),
             x_k.device,
             x_k.dtype,
-            learned_step_embeddings=learned_step_embeddings,
         )
         step_input = {
             "inputs_embeds": x_k + e_k,
@@ -135,7 +131,10 @@ def encode_representations(model, batch, side: str, recursive_eval_steps: int = 
 
         step_output = model.encode_input(step_input, output_attentions=False)
         f_x = step_output[3][-1]
-        x_k = f_x
+        if k == 0:
+            x_k = f_x
+        else:
+            x_k = x_k + f_x
         final_reps = model._pooling(x_k, attention_mask)
 
     return final_reps
@@ -207,18 +206,7 @@ def main():
     #     model.encoder.merge_and_unload()
     model.eval()
     model = model.to(training_args.device, dtype=torch.bfloat16)
-    learned_step_embeddings = None
-    step_emb_path = os.path.join(model_args.model_name, "recursive_step_embeddings.pth")
-    if os.path.exists(step_emb_path):
-        ckpt = torch.load(step_emb_path, map_location="cpu")
-        if isinstance(ckpt, dict) and "weight" in ckpt:
-            learned_step_embeddings = ckpt["weight"]
-        elif torch.is_tensor(ckpt):
-            learned_step_embeddings = ckpt
-        if learned_step_embeddings is not None:
-            print_rank(f"Loaded recursive step embeddings from {step_emb_path}")
-    if learned_step_embeddings is None:
-        print_rank("No learned recursive step embeddings found; using sinusoidal step embeddings.")
+    print_rank("Using sinusoidal recursive step embeddings.")
 
     eval_collator = EvalCollator(
         data_args=data_args,
@@ -289,7 +277,6 @@ def main():
                             batch=batch,
                             side="qry",
                             recursive_eval_steps=recursive_eval_steps,
-                            learned_step_embeddings=learned_step_embeddings,
                         )
                     encoded_tensor.append(reps.cpu().detach().float())
             encoded_tensor = np.concatenate(encoded_tensor)
@@ -309,7 +296,6 @@ def main():
                             batch=batch,
                             side="tgt",
                             recursive_eval_steps=recursive_eval_steps,
-                            learned_step_embeddings=learned_step_embeddings,
                         )
                     encoded_tensor.append(reps.cpu().detach().float())
             encoded_tensor = np.concatenate(encoded_tensor)

@@ -257,17 +257,6 @@ class Distiller(nn.Module):
             self.projectors = projector_list
         print(f"Created {len(self.projectors)} linear projectors.")
 
-    def _init_recursive_step_embeddings(self):
-        self.recursive_step_embeddings = None
-        if getattr(self.training_args, "kd_loss_type", None) != "recursive_distillation_loss":
-            return
-        num_steps = max(1, int(getattr(self.training_args, "recursive_num_steps", 1)))
-        num_embeddings = num_steps + 1  # include e_0
-        emb = nn.Embedding(num_embeddings, self.student_hidden_dim, dtype=torch.bfloat16)
-        nn.init.normal_(emb.weight, mean=0.0, std=0.02)
-        self.recursive_step_embeddings = emb
-        print(f"Initialized recursive step embeddings: {num_embeddings} x {self.student_hidden_dim}")
-    
     def add_optimizer_param_group(self, optimizer):
         if hasattr(self, 'projectors') and self.projectors is not None:
             lr = getattr(self.training_args, "projector_lr", None) or self.training_args.learning_rate
@@ -311,17 +300,6 @@ class Distiller(nn.Module):
         print_rank(f"Saved distillation projectors to {output_path}")
         return True
 
-    def save_recursive_step_embeddings(self, output_path: str):
-        if getattr(self, "recursive_step_embeddings", None) is None:
-            return False
-
-        output_dir = os.path.dirname(output_path)
-        if output_dir:
-            os.makedirs(output_dir, exist_ok=True)
-
-        torch.save({"weight": self.recursive_step_embeddings.weight.detach().cpu()}, output_path)
-        print_rank(f"Saved recursive step embeddings to {output_path}")
-        return True
 
 class DistillationCollator:    
     def __init__(self, student_processor: ProcessorMixin, teacher_processor: ProcessorMixin,
