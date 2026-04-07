@@ -428,8 +428,8 @@ class RecursiveDistillationLoss(nn.Module):
 
         teacher_qry_reps, teacher_qry_image_features, teacher_qry_attention, teacher_qry_hidden_states = teacher_qry_output
         teacher_pos_reps, teacher_pos_image_features, teacher_pos_attention, teacher_pos_hidden_states = teacher_pos_output
-        student_qry_reps, student_qry_image_features, student_qry_attention, _ = student_qry_output
-        student_pos_reps, student_pos_image_features, student_pos_attention, _ = student_pos_output
+        _, student_qry_image_features, student_qry_attention, _ = student_qry_output
+        _, student_pos_image_features, student_pos_attention, _ = student_pos_output
 
         recursive_qry_updates, final_student_qry_reps, _, _ = self._recursive_student_updates(
             student_model,
@@ -446,12 +446,15 @@ class RecursiveDistillationLoss(nn.Module):
             capture_first_step_attn=False,
         )
 
+        # IMPORTANT: contrastive task loss uses reps from the final recursive pass.
+        contrastive_student_qry_reps = final_student_qry_reps
+        contrastive_student_pos_reps = final_student_pos_reps
         if self.world_size > 1:
-            all_student_qry_reps = self._dist_gather_tensor(final_student_qry_reps)
-            all_student_pos_reps = self._dist_gather_tensor(final_student_pos_reps)
+            all_student_qry_reps = self._dist_gather_tensor(contrastive_student_qry_reps)
+            all_student_pos_reps = self._dist_gather_tensor(contrastive_student_pos_reps)
         else:
-            all_student_qry_reps = final_student_qry_reps
-            all_student_pos_reps = final_student_pos_reps
+            all_student_qry_reps = contrastive_student_qry_reps
+            all_student_pos_reps = contrastive_student_pos_reps
 
         scores = student_model.compute_similarity(all_student_qry_reps, all_student_pos_reps)
         scores = scores.view(all_student_qry_reps.size(0), -1)
