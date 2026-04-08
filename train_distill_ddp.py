@@ -1,5 +1,6 @@
 ﻿import json
 from src.distiller import Distiller, DistillationCollator, DistillationDataset
+import shutil
 from src.arguments import DataArguments, MTEBArguments, TrainingArguments, ModelArguments
 from src import model
 from src.utils import print_rank, print_master
@@ -116,7 +117,11 @@ class Trainer:
         self.training_args = training_args
         self.data_args = data_args
         
-        self.distiller = DDP(self.distiller, device_ids=[self.gpu_id])
+        self.distiller = DDP(
+            self.distiller,
+            device_ids=[self.gpu_id],
+            find_unused_parameters=True,
+        )
 
         # <--- [THÊM] Logic kiểm tra report_to="wandb"
         self.use_wandb = False
@@ -129,6 +134,14 @@ class Trainer:
             
             if "wandb" in report_to:
                 self.use_wandb = True
+
+    def _verify_checkpoint(self, ckpt_dir: str, distill_projector_saved: bool):
+        required_files = ["config.json"]
+        missing = [f for f in required_files if not os.path.exists(os.path.join(ckpt_dir, f))]
+        if missing:
+            raise RuntimeError(f"Checkpoint verification failed at {ckpt_dir}. Missing: {missing}")
+        if distill_projector_saved and not os.path.exists(os.path.join(ckpt_dir, "distill_projectors.pth")):
+            raise RuntimeError(f"Checkpoint verification failed at {ckpt_dir}. Missing distill_projectors.pth")
     
     def _debug_batch_devices(self, obj, prefix=""):
         if obj is None:
@@ -211,6 +224,12 @@ class Trainer:
             
             loss.backward()
             if (batch_idx + 1) % self.training_args.gradient_accumulation_steps == 0:
+                # NOTE: recursive step embeddings are sinusoidal/non-parameterized now,
+                # so only projector trainable params are explicitly checked here.
+                if hasattr(self.distiller.module, "projectors") and self.distiller.module.projectors is not None:
+                    for name, p in self.distiller.module.projectors.named_parameters():
+                        if p.requires_grad and p.grad is None:
+                            raise RuntimeError(f"Missing grad for projectors.{name}")
                 self.optimizer.step()
                 self.lr_scheduler.step()
                 self.optimizer.zero_grad()
@@ -278,7 +297,7 @@ class Trainer:
                 distill_projector_dir = os.path.join(ckpt_dir, "distill_projectors.pth")
                 os.makedirs(ckpt_dir, exist_ok=True)
 
-                self.distiller.module.save_projectors(distill_projector_dir)
+                distill_projector_saved = self.distiller.module.save_projectors(distill_projector_dir)
                 
                 student = self.distiller.module.student
                 student.encoder.save_pretrained(ckpt_dir)
@@ -300,7 +319,11 @@ class Trainer:
                         processor.save_pretrained(ckpt_dir)
                 except Exception as e:
                     print_rank(f"Warning: Could not save processor: {e}")
+                self._verify_checkpoint(ckpt_dir, distill_projector_saved=distill_projector_saved)
                 print_rank(f"Saved checkpoint to {ckpt_dir}")
+                latest_final_dir = os.path.join(self.training_args.output_dir, "checkpoint-final")
+                os.makedirs(latest_final_dir, exist_ok=True)
+                shutil.copytree(ckpt_dir, latest_final_dir, dirs_exist_ok=True)
 
                 ## for evaluation
                 print(f"Start evaluating student at epoch {epoch}")
@@ -311,7 +334,7 @@ class Trainer:
             projector_dir =  os.path.join(final_ckpt_dir, "mm_projector.pth")
             distill_projector_dir = os.path.join(final_ckpt_dir, "distill_projectors.pth")
             os.makedirs(final_ckpt_dir, exist_ok=True)
-            self.distiller.module.save_projectors(distill_projector_dir)
+            distill_projector_saved = self.distiller.module.save_projectors(distill_projector_dir)
             student = self.distiller.module.student
             student.encoder.save_pretrained(final_ckpt_dir)
             if self.model_args.model_backbone in ["llava_onevision", "llava_two_vision"]:
@@ -331,6 +354,7 @@ class Trainer:
                     processor.save_pretrained(final_ckpt_dir)
             except Exception as e:
                 print_rank(f"Warning: Could not save processor: {e}")
+            self._verify_checkpoint(final_ckpt_dir, distill_projector_saved=distill_projector_saved)
             print_rank(f"Saved final model to {final_ckpt_dir}")
             
             if self.use_wandb:

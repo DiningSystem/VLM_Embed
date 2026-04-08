@@ -205,43 +205,60 @@ class RecursiveDistillationLoss(nn.Module):
     ):
         """
         Build recursive student token states:
-            X^{k+1} = X^k + f_theta(X^k + e_k)
+            X^{k+1} = X^k + f_theta(X^k + e_k), with first pass X^1 = f_theta(X^0 + e_0)
 
         Here f_theta is one *full* student forward pass each step.
         """
         _, _, _, hidden_states = base_output
-        x_prev = hidden_states[0]  # (B, S, D), proxy for X^0
+        x_prev = hidden_states[-1]  # (B, S, D), X^0 from encoder output states
         updates = []
 
         student_eval_cache_ok = not student_model.training
+        attention_mask = student_input["attention_mask"]
         final_reps = base_output[0]
         first_step_attention = None
         first_step_image_features = None
-        for k in range(1, k_steps + 1):
-            grad_enabled_step = (not student_eval_cache_ok) and (k > k_steps - self.backprop_steps)
-            step_tag = f"student_eval_step_{k}" if student_eval_cache_ok else f"student_train_step_{k}"
+        for k in range(k_steps):
+            grad_enabled_step = (not student_eval_cache_ok) and (k >= k_steps - self.backprop_steps)
+            step_tag = f"student_eval_step_{k+1}" if student_eval_cache_ok else f"student_train_step_{k+1}"
+
+            e_k = self._step_embedding(
+                k,
+                x_prev.size(-1),
+                x_prev.device,
+                x_prev.dtype,
+            )
+            step_input = {
+                "inputs_embeds": x_prev + e_k,
+                "attention_mask": attention_mask,
+            }
+            for key in ("position_ids", "cache_position", "image_grid_thw", "image_sizes", "rope_deltas"):
+                if key in student_input:
+                    step_input[key] = student_input[key]
+
             step_output = self._encode_with_cache(
                 student_model,
                 step_tag,
-                student_input,
+                step_input,
                 enable_grad=grad_enabled_step,
-                output_attentions=(capture_first_step_attn and k == 1),
+                output_attentions=(capture_first_step_attn and k == 0),
             )
             _, step_image_features, step_attention, step_hidden = step_output
-            final_reps = step_output[0]
-            if capture_first_step_attn and k == 1:
+            if capture_first_step_attn and k == 0:
                 first_step_attention = step_attention
                 first_step_image_features = step_image_features
-            f_theta_out = step_hidden[-1]  # one full pass output
+            f_theta_out = step_hidden[-1]
 
-            e_k = self._step_embedding(k, f_theta_out.size(-1), f_theta_out.device, f_theta_out.dtype)
-            # f_theta(X^k + e_k) -- conditioning via step embedding (broadcast over tokens)
-            update = f_theta_out + e_k
+            if k == 0:
+                x_next = f_theta_out
+            else:
+                x_next = x_prev + f_theta_out
+            update = x_next - x_prev
             if not grad_enabled_step:
                 update = update.detach()
-            x_next = x_prev + update
             updates.append(update)
             x_prev = x_next
+            final_reps = student_model._pooling(x_prev, attention_mask)
 
         return updates, final_reps, first_step_attention, first_step_image_features
 
@@ -340,6 +357,9 @@ class RecursiveDistillationLoss(nn.Module):
         student_model = distiller.student
         teacher_model = distiller.teacher
         projectors = distiller.projectors
+        if not hasattr(self, "_step_embedding_mode_logged"):
+            self._step_embedding_mode_logged = True
+            print("[RecursiveDistillationLoss] using sinusoidal step embeddings.")
 
         if (not self._frozen_unused_projectors) and ("s2s" in projectors):
             for p in projectors["s2s"].parameters():
@@ -399,22 +419,33 @@ class RecursiveDistillationLoss(nn.Module):
 
         teacher_qry_reps, teacher_qry_image_features, teacher_qry_attention, teacher_qry_hidden_states = teacher_qry_output
         teacher_pos_reps, teacher_pos_image_features, teacher_pos_attention, teacher_pos_hidden_states = teacher_pos_output
-        student_qry_reps, student_qry_image_features, student_qry_attention, _ = student_qry_output
-        student_pos_reps, student_pos_image_features, student_pos_attention, _ = student_pos_output
+        _, student_qry_image_features, student_qry_attention, _ = student_qry_output
+        _, student_pos_image_features, student_pos_attention, _ = student_pos_output
 
         recursive_qry_updates, final_student_qry_reps, _, _ = self._recursive_student_updates(
-            student_model, student_qry_input, student_qry_output, self.num_steps, capture_first_step_attn=False
+            student_model,
+            student_qry_input,
+            student_qry_output,
+            self.num_steps,
+            capture_first_step_attn=False,
         )
         recursive_pos_updates, final_student_pos_reps, _, _ = self._recursive_student_updates(
-            student_model, student_pos_input, student_pos_output, self.num_steps, capture_first_step_attn=False
+            student_model,
+            student_pos_input,
+            student_pos_output,
+            self.num_steps,
+            capture_first_step_attn=False,
         )
 
+        # IMPORTANT: contrastive task loss uses reps from the final recursive pass.
+        contrastive_student_qry_reps = final_student_qry_reps
+        contrastive_student_pos_reps = final_student_pos_reps
         if self.world_size > 1:
-            all_student_qry_reps = self._dist_gather_tensor(final_student_qry_reps)
-            all_student_pos_reps = self._dist_gather_tensor(final_student_pos_reps)
+            all_student_qry_reps = self._dist_gather_tensor(contrastive_student_qry_reps)
+            all_student_pos_reps = self._dist_gather_tensor(contrastive_student_pos_reps)
         else:
-            all_student_qry_reps = final_student_qry_reps
-            all_student_pos_reps = final_student_pos_reps
+            all_student_qry_reps = contrastive_student_qry_reps
+            all_student_pos_reps = contrastive_student_pos_reps
 
         scores = student_model.compute_similarity(all_student_qry_reps, all_student_pos_reps)
         scores = scores.view(all_student_qry_reps.size(0), -1)
