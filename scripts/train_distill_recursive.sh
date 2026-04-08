@@ -25,7 +25,7 @@ torchrun --nproc_per_node=$NUM_GPUS_PER_NODE \
     --image_dir "vlm2vec_train/MMEB-train" \
     --percent_data 1.0 \
     --output_dir "training/recursive_distill_cls" \
-    --per_device_train_batch_size 10 \
+    --per_device_train_batch_size 8 \
     --gradient_accumulation_steps 1 \
     --learning_rate 1e-4 \
     --num_train_epochs 1 \
@@ -37,16 +37,16 @@ torchrun --nproc_per_node=$NUM_GPUS_PER_NODE \
     --weight_decay 0.01 \
     --normalize True \
     --teacher_normalize True \
-    --lr_scheduler_type "constant" \
+    --lr_scheduler_type "cosine" \
     --warmup_ratio 0.03 \
-    --kd_weight 0.6 \
+    --kd_weight 1.0 \
     --kd_loss_type "recursive_distillation_loss" \
     --recursive_num_steps 2 \
     --recursive_backprop_steps 2 \
-    --recursive_mean_weight 0.1 \
-    --recursive_cov_weight 0.1 \
+    --recursive_mean_weight 0.3 \
+    --recursive_cov_weight 0.3 \
     --recursive_contrastive_weight 1.0 \
-    --recursive_attn_weight 1.0 \
+    --recursive_attn_weight 0.5 \
     --recursive_enable_kv_cache True \
     --recursive_kv_cache_size 32 \
     --image_resolution "low" \
