@@ -130,6 +130,7 @@ class TrainingArguments(TrainingArguments):
     recursive_attn_weight: float = field(default=1.0, metadata={"help": "weight for first-layer cross-modal attention alignment"})
     recursive_enable_kv_cache: bool = field(default=True, metadata={"help": "enable teacher/eval-student output cache for recursive KD"})
     recursive_kv_cache_size: int = field(default=32, metadata={"help": "max entries in recursive KD cache"})
+    recursive_eval_steps: int = field(default=1, metadata={"help": "number of recursive eval steps for recursive forward-pass emulation (1 keeps standard eval)"})
 @dataclass
 class MTEBArguments:
     device: str = field(default="cuda", metadata={"help": "use cuda for single GPU inference, if multiple GPUs are available it will use DP automatically"})

@@ -126,6 +126,11 @@ class Distiller(nn.Module):
         # if self.model_args.projector_config_path is not None:
         self.set_projector()
         print("Projectors set.")
+
+    # Compatibility shim: kept only to avoid breaking old callers/scripts.
+    # Recursive step embeddings are sinusoidal and non-parameterized now.
+    def _init_recursive_step_embeddings(self):
+        return None
     
     def _create_model_args(self, model_type='teacher'):
         if model_type == 'teacher': 
@@ -255,7 +260,7 @@ class Distiller(nn.Module):
 
             self.projectors = projector_list
         print(f"Created {len(self.projectors)} linear projectors.")
-    
+
     def add_optimizer_param_group(self, optimizer):
         if hasattr(self, 'projectors') and self.projectors is not None:
             lr = getattr(self.training_args, "projector_lr", None) or self.training_args.learning_rate
@@ -288,6 +293,7 @@ class Distiller(nn.Module):
         torch.save(self.projectors.state_dict(), output_path)
         print_rank(f"Saved distillation projectors to {output_path}")
         return True
+
 
 class DistillationCollator:    
     def __init__(self, student_processor: ProcessorMixin, teacher_processor: ProcessorMixin,
