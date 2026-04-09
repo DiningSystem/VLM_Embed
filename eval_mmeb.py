@@ -110,7 +110,9 @@ def encode_representations(model, batch, side: str, recursive_eval_steps: int = 
     _, _, _, hidden_states = base_output
     x_k = hidden_states[-1]
     attention_mask = batch["attention_mask"]
-    final_reps = base_output[0]
+    # This variable is always overwritten with the representation from the current
+    # recursive pass; at loop end it is the representation from the LAST pass.
+    last_pass_reps = base_output[0]
 
     for k in range(recursive_eval_steps):
         e_k = _step_embedding(
@@ -133,9 +135,9 @@ def encode_representations(model, batch, side: str, recursive_eval_steps: int = 
             x_k = f_x
         else:
             x_k = x_k + f_x
-        final_reps = model._pooling(x_k, attention_mask)
+        last_pass_reps = model._pooling(x_k, attention_mask)
 
-    return final_reps
+    return last_pass_reps
 
 @contextmanager
 def time_block(name):

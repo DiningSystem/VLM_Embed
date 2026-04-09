@@ -431,6 +431,7 @@ class RecursiveDistillationLoss(nn.Module):
         _, student_qry_image_features, student_qry_attention, _ = student_qry_output
         _, student_pos_image_features, student_pos_attention, _ = student_pos_output
 
+        # final_student_*_reps are pooled representations from the LAST recursive pass.
         recursive_qry_updates, final_student_qry_reps, _, _ = self._recursive_student_updates(
             student_model,
             student_qry_input,
