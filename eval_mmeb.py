@@ -158,9 +158,9 @@ def main():
     model_args, data_args, training_args = parser.parse_args_into_dataclasses()
     
     seed_everything(training_args.seed)
-    recursive_eval_steps = max(1, int(getattr(training_args, "recursive_eval_steps", 1)))
+    recursive_eval_steps = max(1, int(getattr(training_args, "recursive_eval_steps", 2)))
     recursive_cfg_path = os.path.join(model_args.model_name, "recursive_eval_config.json")
-    if recursive_eval_steps == 1 and os.path.exists(recursive_cfg_path):
+    if recursive_eval_steps == 2 and os.path.exists(recursive_cfg_path):
         try:
             with open(recursive_cfg_path, "r") as f:
                 recursive_cfg = json.load(f)
