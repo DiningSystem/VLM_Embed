@@ -223,6 +223,15 @@ class Trainer:
             batch_er_kd_loss = sum(er_kd_losses) / len(er_kd_losses)
             
             loss.backward()
+            if hasattr(self.distiller.module, "recursive_step_embeddings") and self.distiller.module.recursive_step_embeddings is not None:
+                for name, p in self.distiller.module.recursive_step_embeddings.named_parameters():
+                    if p.requires_grad and p.grad is None:
+                        raise RuntimeError(f"Missing grad for recursive_step_embeddings.{name}")
+            if hasattr(self.distiller.module, "projectors") and self.distiller.module.projectors is not None:
+                for name, p in self.distiller.module.projectors.named_parameters():
+                    if p.requires_grad and p.grad is None:
+                        raise RuntimeError(f"Missing grad for projectors.{name}")
+
             if (batch_idx + 1) % self.training_args.gradient_accumulation_steps == 0:
                 # NOTE: recursive step embeddings are sinusoidal/non-parameterized now,
                 # so only projector trainable params are explicitly checked here.
@@ -295,6 +304,7 @@ class Trainer:
                 ckpt_dir = os.path.join(self.training_args.output_dir, f"checkpoint-epoch-{epoch}")
                 projector_dir = os.path.join(ckpt_dir, "mm_projector.pth")
                 distill_projector_dir = os.path.join(ckpt_dir, "distill_projectors.pth")
+                recursive_step_emb_dir = os.path.join(ckpt_dir, "recursive_step_embeddings.pth")
                 os.makedirs(ckpt_dir, exist_ok=True)
 
                 distill_projector_saved = self.distiller.module.save_projectors(distill_projector_dir)
@@ -333,6 +343,7 @@ class Trainer:
             final_ckpt_dir = os.path.join(self.training_args.output_dir, f"checkpoint-final")
             projector_dir =  os.path.join(final_ckpt_dir, "mm_projector.pth")
             distill_projector_dir = os.path.join(final_ckpt_dir, "distill_projectors.pth")
+            recursive_step_emb_dir = os.path.join(final_ckpt_dir, "recursive_step_embeddings.pth")
             os.makedirs(final_ckpt_dir, exist_ok=True)
             distill_projector_saved = self.distiller.module.save_projectors(distill_projector_dir)
             student = self.distiller.module.student
@@ -427,6 +438,7 @@ def main():
     total_steps = (len(train_dataloader.dataset) // (training_args.per_device_train_batch_size * dist.get_world_size()) // training_args.gradient_accumulation_steps) * training_args.num_train_epochs
     if model_args.projector_config_path is not None:
         optimizer = distiller.add_optimizer_param_group(optimizer)
+    optimizer = distiller.add_recursive_step_embedding_param_group(optimizer)
 
     print("Number of trainable parameters:", sum(p.numel() for p in optimizer.param_groups[0]['params'] if p.requires_grad))
 
