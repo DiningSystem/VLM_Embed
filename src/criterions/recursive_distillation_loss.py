@@ -124,8 +124,16 @@ class RecursiveDistillationLoss(nn.Module):
             idxs.append(max(1, min(idx, max_idx)))
         return idxs
 
-    def _step_embedding(self, step: int, dim: int, device, dtype):
+    def _step_embedding(self, step: int, dim: int, device, dtype, learned_step_embeddings=None):
+        if learned_step_embeddings is not None:
+            step = int(step)
+            max_step = learned_step_embeddings.num_embeddings - 1
+            step_idx = min(max(step, 0), max_step)
+            learned = learned_step_embeddings.weight[step_idx].to(device=device, dtype=dtype)
+            return learned.view(1, 1, dim)
         # deterministic sinusoidal step embedding, shape (1, 1, dim)
+        # NOTE: this is generated on-the-fly (non-trainable), so there is no
+        # recursive step-embedding parameter to save into checkpoints.
         half = dim // 2
         if half == 0:
             return torch.zeros(1, 1, dim, device=device, dtype=dtype)
@@ -201,6 +209,7 @@ class RecursiveDistillationLoss(nn.Module):
         student_input,
         base_output,
         k_steps: int,
+        learned_step_embeddings=None,
         capture_first_step_attn: bool = False,
     ):
         """
@@ -534,7 +543,13 @@ class RecursiveDistillationLoss(nn.Module):
         for p in projectors.parameters():
             if p.requires_grad:
                 projector_guard = projector_guard + p.sum() * 0.0
-        loss = loss + projector_guard
+        step_emb_guard = loss.new_tensor(0.0)
+        step_emb_module = getattr(distiller, "recursive_step_embeddings", None)
+        if step_emb_module is not None:
+            for p in step_emb_module.parameters():
+                if p.requires_grad:
+                    step_emb_guard = step_emb_guard + p.sum() * 0.0
+        loss = loss + projector_guard + step_emb_guard
 
         return {
             "loss": loss,
