@@ -136,7 +136,7 @@ class Trainer:
                 self.use_wandb = True
 
     def _verify_checkpoint(self, ckpt_dir: str, distill_projector_saved: bool):
-        required_files = ["config.json"]
+        required_files = ["config.json", "recursive_eval_config.json"]
         missing = [f for f in required_files if not os.path.exists(os.path.join(ckpt_dir, f))]
         if missing:
             raise RuntimeError(f"Checkpoint verification failed at {ckpt_dir}. Missing: {missing}")
@@ -329,6 +329,9 @@ class Trainer:
                         processor.save_pretrained(ckpt_dir)
                 except Exception as e:
                     print_rank(f"Warning: Could not save processor: {e}")
+                recursive_cfg_path = os.path.join(ckpt_dir, "recursive_eval_config.json")
+                with open(recursive_cfg_path, "w") as f:
+                    json.dump({"recursive_num_steps": int(self.training_args.recursive_num_steps)}, f)
                 self._verify_checkpoint(ckpt_dir, distill_projector_saved=distill_projector_saved)
                 print_rank(f"Saved checkpoint to {ckpt_dir}")
                 latest_final_dir = os.path.join(self.training_args.output_dir, "checkpoint-final")
@@ -365,6 +368,9 @@ class Trainer:
                     processor.save_pretrained(final_ckpt_dir)
             except Exception as e:
                 print_rank(f"Warning: Could not save processor: {e}")
+            recursive_cfg_path = os.path.join(final_ckpt_dir, "recursive_eval_config.json")
+            with open(recursive_cfg_path, "w") as f:
+                json.dump({"recursive_num_steps": int(self.training_args.recursive_num_steps)}, f)
             self._verify_checkpoint(final_ckpt_dir, distill_projector_saved=distill_projector_saved)
             print_rank(f"Saved final model to {final_ckpt_dir}")
             

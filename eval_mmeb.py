@@ -159,6 +159,17 @@ def main():
     
     seed_everything(training_args.seed)
     recursive_eval_steps = max(1, int(getattr(training_args, "recursive_eval_steps", 1)))
+    recursive_cfg_path = os.path.join(model_args.model_name, "recursive_eval_config.json")
+    if recursive_eval_steps == 1 and os.path.exists(recursive_cfg_path):
+        try:
+            with open(recursive_cfg_path, "r") as f:
+                recursive_cfg = json.load(f)
+            ckpt_steps = int(recursive_cfg.get("recursive_num_steps", 1))
+            if ckpt_steps > 1:
+                recursive_eval_steps = ckpt_steps
+                print_rank(f"Loaded recursive_eval_steps={recursive_eval_steps} from {recursive_cfg_path}")
+        except Exception as e:
+            print_rank(f"Warning: failed to read recursive config from {recursive_cfg_path}: {e}")
     print_rank(f"recursive_eval_steps: {recursive_eval_steps}")
      
     use_wandb = False
