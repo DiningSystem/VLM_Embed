@@ -426,7 +426,7 @@ class Qwen2ForCausalLM(Qwen2PreTrainedModel, GenerationMixin):
         labels: Optional[torch.LongTensor] = None,
         use_cache: Optional[bool] = None,
         cache_position: Optional[torch.LongTensor] = None,
-        logits_to_keep: Union[int, torch.Tensor] = 0,
+        logits_to_keep: Optional[Union[int, torch.Tensor]] = 0,
         **kwargs: Unpack[TransformersKwargs],
     ) -> CausalLMOutputWithPast:
         r"""
@@ -458,9 +458,17 @@ class Qwen2ForCausalLM(Qwen2PreTrainedModel, GenerationMixin):
         )
 
         hidden_states = outputs.last_hidden_state
-        # Only compute necessary logits, and do not upcast them to float if we are not computing the loss
-        slice_indices = slice(-logits_to_keep, None) if isinstance(logits_to_keep, int) else logits_to_keep
-        logits = self.lm_head(hidden_states[:, slice_indices, :])
+        # Skip expensive vocab projection when caller only needs hidden states.
+        logits = None
+        if labels is not None or logits_to_keep is not None:
+            if isinstance(logits_to_keep, int):
+                if logits_to_keep == 0:
+                    slice_indices = slice(None)
+                else:
+                    slice_indices = slice(-logits_to_keep, None)
+            else:
+                slice_indices = logits_to_keep
+            logits = self.lm_head(hidden_states[:, slice_indices, :])
 
         loss = None
         if labels is not None:
