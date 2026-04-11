@@ -83,6 +83,7 @@ class LlavaQwen2ForCausalLM(Qwen2ForCausalLM, LlavaMetaForCausalLM):
         image_sizes: Optional[List[List[int]]] = None,
         return_dict: Optional[bool] = None,
         cache_position=None,
+        logits_to_keep=None,
     ) -> Union[Tuple, CausalLMOutputWithPast]:
         image_features = None
 
@@ -117,7 +118,8 @@ class LlavaQwen2ForCausalLM(Qwen2ForCausalLM, LlavaMetaForCausalLM):
             use_cache=use_cache,
             output_attentions=output_attentions,
             output_hidden_states=output_hidden_states,
-            return_dict=return_dict
+            return_dict=return_dict,
+            logits_to_keep=logits_to_keep,
         )
         return LlavaQwen2OutputWithPast(
             loss=output.loss,
