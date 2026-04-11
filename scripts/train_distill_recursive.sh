@@ -5,6 +5,7 @@ TRAIN_SCRIPT="train_distill_ddp.py"
 
 SUBSETS=(
   "ImageNet_1K" "N24News" "HatefulMemes" "VOC2007" "SUN397"
+#"HatefulMemes"
 )
 
 torchrun --nproc_per_node=$NUM_GPUS_PER_NODE \
@@ -24,9 +25,9 @@ torchrun --nproc_per_node=$NUM_GPUS_PER_NODE \
     --dataset_split "original" \
     --image_dir "vlm2vec_train/MMEB-train" \
     --percent_data 1.0 \
-    --output_dir "training/recursive_distill_cls" \
+    --output_dir "training/recursive_distill_cls_3step" \
     --per_device_train_batch_size 8 \
-    --gradient_accumulation_steps 1 \
+    --gradient_accumulation_steps 2 \
     --learning_rate 1e-4 \
     --num_train_epochs 1 \
     --bf16 \
@@ -39,17 +40,17 @@ torchrun --nproc_per_node=$NUM_GPUS_PER_NODE \
     --teacher_normalize True \
     --lr_scheduler_type "cosine" \
     --warmup_ratio 0.03 \
-    --kd_weight 1.0 \
+    --kd_weight 0.3 \
     --kd_loss_type "recursive_distillation_loss" \
-    --recursive_num_steps 2 \
-    --recursive_backprop_steps 2 \
-    --recursive_mean_weight 0.3 \
-    --recursive_cov_weight 0.3 \
+    --recursive_num_steps 3 \
+    --recursive_backprop_steps 3 \
+    --recursive_mean_weight 0.2 \
+    --recursive_cov_weight 0.2 \
     --recursive_contrastive_weight 1.0 \
-    --recursive_attn_weight 0.5 \
+    --recursive_attn_weight 1.0 \
     --recursive_enable_kv_cache True \
-    --recursive_kv_cache_size 32 \
+    --recursive_kv_cache_size 8 \
     --image_resolution "low" \
     --projector_config_path "./config/projector_config.json" \
     --projector_lr 5e-5 \
-    --report_to None
+    --report_to wandb

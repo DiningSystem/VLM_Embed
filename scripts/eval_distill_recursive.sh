@@ -11,7 +11,7 @@ SUBSETS=(
   "ImageNet-1K" "N24News" "HatefulMemes" "VOC2007" "SUN397"
 )
 
-DEFAULT_TRAIN_DIR="training/recursive_distill_cls"
+DEFAULT_TRAIN_DIR="training/recursive_distill_cls2"
 
 resolve_model_path() {
   local input_path="$1"
@@ -38,7 +38,7 @@ resolve_model_path() {
 }
 
 MODEL_PATH=$(resolve_model_path "${1:-}")
-OUTPUT_PATH=${2:-"MMEB-eval_outputs/recursive_distill_cls"}
+OUTPUT_PATH=${2:-"MMEB-eval_outputs/recursive_distill_cls2"}
 RECURSIVE_EVAL_STEPS=${3:-2}
 
 echo "Using model checkpoint: ${MODEL_PATH}"
