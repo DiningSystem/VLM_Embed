@@ -39,13 +39,17 @@ resolve_model_path() {
 
 MODEL_PATH=$(resolve_model_path "${1:-}")
 OUTPUT_PATH=${2:-"MMEB-eval_outputs/recursive_distill_cls2"}
-RECURSIVE_EVAL_STEPS=${3:-2}
+RECURSIVE_EVAL_STEPS=${3:-}
 
 echo "Using model checkpoint: ${MODEL_PATH}"
 echo "Eval output path: ${OUTPUT_PATH}"
-echo "Recursive eval steps: ${RECURSIVE_EVAL_STEPS}"
+if [[ -n "${RECURSIVE_EVAL_STEPS}" ]]; then
+  echo "Recursive eval steps (CLI override): ${RECURSIVE_EVAL_STEPS}"
+else
+  echo "Recursive eval steps: auto (loaded from checkpoint config when available)"
+fi
 echo "Running eval_mmeb_recursive.py with recursive forward-pass emulation."
-
+CMD=(
 python eval_mmeb_recursive.py \
   --model_name "${MODEL_PATH}" \
   --encode_output_path "${OUTPUT_PATH}" \
@@ -61,9 +65,15 @@ python eval_mmeb_recursive.py \
   --dataset_split test \
   --per_device_eval_batch_size 1 \
   --seed 42 \
-  --recursive_eval_steps "${RECURSIVE_EVAL_STEPS}" \
   --image_dir eval_images/ \
   --tgt_prefix_mod \
   --image_resolution low \
   --load_pretrained_lora True \
   --report_to none
+)
+
+if [[ -n "${RECURSIVE_EVAL_STEPS}" ]]; then
+  CMD+=(--recursive_eval_steps "${RECURSIVE_EVAL_STEPS}")
+fi
+
+"${CMD[@]}"
