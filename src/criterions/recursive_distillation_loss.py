@@ -13,7 +13,7 @@ from .utils import count_clean_text_tokens, get_hidden_text_vision
 class RecursiveDistillationLoss(nn.Module):
     """
     Recursive KD with explicit state recursion:
-        X^{k+1} = X^k + f_theta(X^k + e_k)
+        X^{k+1} = X^k + (1/K) * f_theta(X^k + e_k)
 
     In this implementation, f_theta is one *full* pass through the student model
     (`student_model.encode_input`) at each step k.
@@ -169,7 +169,7 @@ class RecursiveDistillationLoss(nn.Module):
     ):
         """
         Build recursive student token states:
-            X^{k+1} = X^k + f_theta(X^k + e_k), with first pass X^1 = f_theta(X^0 + e_0)
+            X^{k+1} = X^k + (1/K) * f_theta(X^k + e_k)
 
         Here f_theta is one *full* student forward pass each step.
         """
@@ -212,11 +212,9 @@ class RecursiveDistillationLoss(nn.Module):
                 first_step_attention = step_attention
                 first_step_image_features = step_image_features
             f_theta_out = step_hidden[-1]
+            step_scale = 1.0 / float(k_steps)
 
-            if k == 0:
-                x_next = f_theta_out
-            else:
-                x_next = x_prev + f_theta_out
+            x_next = x_prev + (step_scale * f_theta_out)
             update = x_next - x_prev
             if not grad_enabled_step:
                 update = update.detach()
@@ -287,16 +285,21 @@ class RecursiveDistillationLoss(nn.Module):
                 mean_loss = mean_loss + F.mse_loss(z_s_txt.mean(dim=0), z_t_txt.mean(dim=0))
 
                 cov_loss = 0.0
-                cov_s_img = self._covariance(z_s_img)
-                cov_t_img = self._covariance(z_t_img)
-                cov_s_txt = self._covariance(z_s_txt)
-                cov_t_txt = self._covariance(z_t_txt)
+                # normalize token vectors before covariance alignment
+                z_s_img_norm = F.normalize(z_s_img, dim=-1)
+                z_t_img_norm = F.normalize(z_t_img, dim=-1)
+                z_s_txt_norm = F.normalize(z_s_txt, dim=-1)
+                z_t_txt_norm = F.normalize(z_t_txt, dim=-1)
+                cov_s_img = self._covariance(z_s_img_norm)
+                cov_t_img = self._covariance(z_t_img_norm)
+                cov_s_txt = self._covariance(z_s_txt_norm)
+                cov_t_txt = self._covariance(z_t_txt_norm)
                 if cov_s_img is not None and cov_t_img is not None:
                     cov_loss = cov_loss + F.mse_loss(cov_s_img, cov_t_img)
                 if cov_s_txt is not None and cov_t_txt is not None:
                     cov_loss = cov_loss + F.mse_loss(cov_s_txt, cov_t_txt)
 
-                wk = float(k) / float(k_steps)
+                wk = 1.0 / float(k_steps)
                 total_mean = total_mean + wk * mean_loss
                 total_cov = total_cov + wk * cov_loss
                 denom += 1
@@ -313,7 +316,9 @@ class RecursiveDistillationLoss(nn.Module):
         teacher_q = F.normalize(projectors["t2s"](teacher_qry_reps), dim=-1)
         teacher_p = F.normalize(projectors["t2s"](teacher_pos_reps), dim=-1)
 
-        s_sim = F.normalize(student_qry_reps, dim=-1) @ F.normalize(student_pos_reps, dim=-1).transpose(0, 1)
+        student_q = F.normalize(student_qry_reps, dim=-1)
+        student_p = F.normalize(student_pos_reps, dim=-1)
+        s_sim = student_q @ student_p.transpose(0, 1)
         t_sim = teacher_q @ teacher_p.transpose(0, 1)
         return F.l1_loss(s_sim, t_sim)
 
