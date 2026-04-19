@@ -36,7 +36,6 @@ class RecursiveDistillationLoss(nn.Module):
 
         self.enable_kv_cache = bool(getattr(self.args, "recursive_enable_kv_cache", True))
         self.cache_size = max(1, int(getattr(self.args, "recursive_kv_cache_size", 32)))
-        self._teacher_cache = OrderedDict()
         self._student_eval_cache = OrderedDict()
         self._frozen_unused_projectors = False
 
@@ -93,13 +92,13 @@ class RecursiveDistillationLoss(nn.Module):
             with torch.no_grad():
                 return model.encode_input(input_data, output_attentions=output_attentions)
 
-        # only cache teacher always + student in eval mode (no grad path)
+        # Cache only eval-student calls. Teacher caching is intentionally disabled
+        # because cached entries include full hidden-state stacks and can trigger
+        # cumulative GPU-memory growth / OOM in long training runs.
         if enable_grad:
             return model.encode_input(input_data, output_attentions=output_attentions)
 
-        if model_tag.startswith("teacher"):
-            cache = self._teacher_cache
-        elif model_tag.startswith("student_eval"):
+        if model_tag.startswith("student_eval") and (not model.training):
             cache = self._student_eval_cache
         else:
             with torch.no_grad():
