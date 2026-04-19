@@ -35,6 +35,7 @@ torchrun --standalone \
     --teacher_normalize True \
     --lr_scheduler_type "constant" \
     --warmup_ratio 0.03 \
+    --max_grad_norm 1.0 \
     --kd_weight 0.6 \
     --kd_loss_type "recursive_distillation_loss" \
     --recursive_num_steps 2 \
@@ -42,7 +43,7 @@ torchrun --standalone \
     --recursive_mean_weight 0.1 \
     --recursive_cov_weight 0.1 \
     --recursive_contrastive_weight 1.0 \
-    --recursive_attn_weight 1.0 \
+    --recursive_attn_weight 0.0 \
     --recursive_enable_kv_cache True \
     --recursive_kv_cache_size 32 \
     --image_resolution "low" \
