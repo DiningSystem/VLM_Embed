@@ -239,13 +239,17 @@ class Trainer:
                     for name, p in self.distiller.module.projectors.named_parameters():
                         if p.requires_grad and p.grad is None:
                             raise RuntimeError(f"Missing grad for projectors.{name}")
+                grad_norm = None
+                max_grad_norm = getattr(self.training_args, "max_grad_norm", None)
+                if max_grad_norm is not None and max_grad_norm > 0:
+                    grad_norm = torch.nn.utils.clip_grad_norm_(self.distiller.parameters(), max_grad_norm)
                 self.optimizer.step()
                 self.lr_scheduler.step()
                 self.optimizer.zero_grad()
             
                 if is_main_process():
                     current_lr = self.lr_scheduler.get_last_lr()[0]
-                    progress_bar.set_postfix({
+                    postfix = {
                         'loss': f"{batch_loss:.4f}",
                         'eos_kd_loss': f"{batch_eos_kd_loss:.4f}",
                         'er_kd_loss': f"{batch_er_kd_loss:.4f}",
@@ -258,7 +262,10 @@ class Trainer:
                         'kd_loss_mse': f"{batch_kd_loss_mse:.4f}",
                         'kd_penultimate_loss': f"{batch_kd_penultimate_loss:.4f}",
                         'lr': f"{self.lr_scheduler.get_last_lr()[0]:.6f}",
-                    })
+                    }
+                    if grad_norm is not None:
+                        postfix["grad_norm"] = f"{float(grad_norm):.3f}"
+                    progress_bar.set_postfix(postfix)
                     progress_bar.update(1)
 
                     # <--- [THÊM] Log metrics vào wandb
@@ -279,6 +286,8 @@ class Trainer:
                             "train/learning_rate": current_lr,
                             "train/epoch": epoch + ((batch_idx + 1) / self.training_args.gradient_accumulation_steps) / steps_per_epoch
                         })
+                        if grad_norm is not None:
+                            wandb.log({"train/grad_norm": float(grad_norm)})
                 
             torch.cuda.empty_cache()
         progress_bar.close()
