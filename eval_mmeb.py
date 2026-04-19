@@ -104,8 +104,7 @@ def _step_embedding(step: int, dim: int, device, dtype):
 def encode_representations(model, batch, side: str, recursive_eval_steps: int = 1):
     recursive_eval_steps = max(1, int(recursive_eval_steps))
     # Match training recursive formula:
-    # first pass: x_1 = f(x_0 + e_0)
-    # from second pass: x_{k+1} = x_k + f(x_k + e_k)
+    # x_{k+1} = x_k + (1/K) * f(x_k + e_k)
     base_output = model.encode_input(batch, output_attentions=False)
     _, _, _, hidden_states = base_output
     x_k = hidden_states[-1]
@@ -131,10 +130,8 @@ def encode_representations(model, batch, side: str, recursive_eval_steps: int = 
 
         step_output = model.encode_input(step_input, output_attentions=False)
         f_x = step_output[3][-1]
-        if k == 0:
-            x_k = f_x
-        else:
-            x_k = x_k + f_x
+        step_scale = 1.0 / float(recursive_eval_steps)
+        x_k = x_k + (step_scale * f_x)
         last_pass_reps = model._pooling(x_k, attention_mask)
 
     return last_pass_reps
