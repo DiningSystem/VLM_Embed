@@ -38,12 +38,6 @@ class RecursiveDistillationLoss(nn.Module):
         self.cache_size = max(1, int(getattr(self.args, "recursive_kv_cache_size", 32)))
         self._teacher_cache = OrderedDict()
         self._student_eval_cache = OrderedDict()
-        # 1x1 conv mapping for attention alignment (teacher -> student space)
-        self.attn_conv1 = nn.Conv2d(1, 1, kernel_size=1, bias=False)
-        with torch.no_grad():
-            self.attn_conv1.weight.fill_(1.0)
-        for p in self.attn_conv1.parameters():
-            p.requires_grad = False
         self._frozen_unused_projectors = False
 
         if dist.is_initialized():
@@ -62,7 +56,7 @@ class RecursiveDistillationLoss(nn.Module):
 
     def _cache_key(self, model_tag: str, input_data: dict) -> str:
         hasher = hashlib.sha1(model_tag.encode("utf-8"))
-        for key in ["input_ids", "attention_mask", "image_grid_thw", "image_sizes"]:
+        for key in ["input_ids", "inputs_embeds", "attention_mask", "image_grid_thw", "image_sizes"]:
             if key not in input_data:
                 continue
             val = input_data[key]
@@ -103,7 +97,13 @@ class RecursiveDistillationLoss(nn.Module):
         if enable_grad:
             return model.encode_input(input_data, output_attentions=output_attentions)
 
-        cache = self._student_eval_cache if model_tag.startswith("student_eval") else self._teacher_cache
+        if model_tag.startswith("teacher"):
+            cache = self._teacher_cache
+        elif model_tag.startswith("student_eval"):
+            cache = self._student_eval_cache
+        else:
+            with torch.no_grad():
+                return model.encode_input(input_data, output_attentions=output_attentions)
         key = self._cache_key(model_tag, input_data)
         key = f"{key}|attn={int(output_attentions)}"
         if key in cache:
@@ -147,50 +147,6 @@ class RecursiveDistillationLoss(nn.Module):
             emb = torch.cat([emb, emb.new_zeros(dim - emb.numel())], dim=0)
         emb = emb[:dim].to(dtype=dtype)
         return emb.view(1, 1, dim)
-
-    def _extract_first_layer_text_to_vision(
-        self,
-        attn_list,
-        sample_idx: int,
-        n_text: int,
-        n_vision: int,
-        attn_mask: torch.Tensor,
-    ):
-        if attn_list is None or len(attn_list) == 0:
-            return None
-
-        # first layer: (B, H, S, S)
-        first_attn = attn_list[0]
-        if first_attn is None or first_attn.dim() != 4 or sample_idx >= first_attn.size(0):
-            return None
-        first_attn = first_attn[sample_idx]  # (H, S, S)
-        left_padding = bool(attn_mask[0] == 0 and attn_mask[-1] == 1)
-
-        if left_padding:
-            txt_start = first_attn.shape[-1] - n_text
-            vis_start = txt_start - n_vision
-            txt_slice = slice(txt_start, txt_start + n_text)
-            vis_slice = slice(vis_start, vis_start + n_vision)
-        else:
-            vis_slice = slice(0, n_vision)
-            txt_slice = slice(n_vision, n_vision + n_text)
-
-        return first_attn[:, txt_slice, vis_slice].mean(dim=0)  # (Nt, Nv)
-
-    def _attention_alignment_loss(self, student_attn, teacher_attn):
-        if student_attn is None or teacher_attn is None:
-            return None
-
-        if student_attn.dim() != 2 or teacher_attn.dim() != 2:
-            return None
-
-        # 1x1 conv mapping + shape alignment before MSE
-        s = student_attn.unsqueeze(0).unsqueeze(0)  # (1,1,Nt,Nv)
-        t = teacher_attn.unsqueeze(0).unsqueeze(0)
-        conv_weight = self.attn_conv1.weight.to(device=t.device, dtype=t.dtype)
-        t_proj = F.conv2d(t, conv_weight, bias=None)
-        t_proj = F.interpolate(t_proj, size=s.shape[-2:], mode="bilinear", align_corners=False)
-        return F.mse_loss(s, t_proj)
 
     def _covariance(self, z: torch.Tensor):
         if z.numel() == 0:
@@ -400,7 +356,7 @@ class RecursiveDistillationLoss(nn.Module):
             "teacher_qry",
             teacher_qry_input,
             enable_grad=False,
-            output_attentions=True,
+            output_attentions=False,
         )
         teacher_pos_output = self._encode_with_cache(
             teacher_model,
@@ -416,7 +372,7 @@ class RecursiveDistillationLoss(nn.Module):
             "student_eval_qry_base" if student_eval_cache_ok else "student_train_qry_base",
             student_qry_input,
             enable_grad=False,
-            output_attentions=True,
+            output_attentions=False,
         )
         student_pos_output = self._encode_with_cache(
             student_model,
@@ -426,10 +382,10 @@ class RecursiveDistillationLoss(nn.Module):
             output_attentions=False,
         )
 
-        teacher_qry_reps, teacher_qry_image_features, teacher_qry_attention, teacher_qry_hidden_states = teacher_qry_output
-        teacher_pos_reps, teacher_pos_image_features, teacher_pos_attention, teacher_pos_hidden_states = teacher_pos_output
-        _, student_qry_image_features, student_qry_attention, _ = student_qry_output
-        _, student_pos_image_features, student_pos_attention, _ = student_pos_output
+        teacher_qry_reps, teacher_qry_image_features, _, teacher_qry_hidden_states = teacher_qry_output
+        teacher_pos_reps, teacher_pos_image_features, _, teacher_pos_hidden_states = teacher_pos_output
+        _, student_qry_image_features, _, _ = student_qry_output
+        _, student_pos_image_features, _, _ = student_pos_output
 
         # final_student_*_reps are pooled representations from the LAST recursive pass.
         recursive_qry_updates, final_student_qry_reps, _, _ = self._recursive_student_updates(
@@ -500,32 +456,8 @@ class RecursiveDistillationLoss(nn.Module):
         cov_loss = 0.5 * (cov_qry_loss + cov_pos_loss)
         update_loss = self.mean_weight * mean_loss + self.cov_weight * cov_loss
 
-        attn_losses = []
-        if student_qry_image_features is not None and teacher_qry_image_features is not None:
-            s_text_counts = count_clean_text_tokens(student_qry_input, student_special_ids)
-            t_text_counts = count_clean_text_tokens(teacher_qry_input, teacher_special_ids)
-            for i in range(student_qry_input["input_ids"].size(0)):
-                if i >= len(student_qry_image_features) or i >= len(teacher_qry_image_features):
-                    continue
-                s_att = self._extract_first_layer_text_to_vision(
-                    student_qry_attention,
-                    i,
-                    int(s_text_counts[i].item()),
-                    int(student_qry_image_features[i].size(0)),
-                    student_qry_input["attention_mask"][i],
-                )
-                t_att = self._extract_first_layer_text_to_vision(
-                    teacher_qry_attention,
-                    i,
-                    int(t_text_counts[i].item()),
-                    int(teacher_qry_image_features[i].size(0)),
-                    teacher_qry_input["attention_mask"][i],
-                )
-                l = self._attention_alignment_loss(s_att, t_att)
-                if l is not None:
-                    attn_losses.append(l)
-
-        attn_loss = update_loss.new_tensor(0.0) if len(attn_losses) == 0 else torch.stack(attn_losses).mean()
+        # Temporarily disable attention alignment; keep a zero scalar for logging compatibility.
+        attn_loss = update_loss.new_tensor(0.0)
 
         contrastive_kd_loss = self._contrastive_similarity_distill(
             final_student_qry_reps,
@@ -535,7 +467,7 @@ class RecursiveDistillationLoss(nn.Module):
             projectors,
         )
 
-        kd_loss = update_loss + self.attn_weight * attn_loss + self.contrastive_weight * contrastive_kd_loss
+        kd_loss = update_loss + self.contrastive_weight * contrastive_kd_loss
         loss = contrastive_loss + self.kd_loss_weight * kd_loss
         # DDP safety: ensure all trainable projector params participate in graph,
         # even when some branches/weights are disabled for a given batch.

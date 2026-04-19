@@ -127,7 +127,7 @@ class TrainingArguments(TrainingArguments):
     recursive_mean_weight: float = field(default=1.0, metadata={"help": "mean term weight in recursive update loss"})
     recursive_cov_weight: float = field(default=0.1, metadata={"help": "covariance term weight in recursive update loss"})
     recursive_contrastive_weight: float = field(default=1.0, metadata={"help": "weight for recursive contrastive KD term"})
-    recursive_attn_weight: float = field(default=1.0, metadata={"help": "weight for first-layer cross-modal attention alignment"})
+    recursive_attn_weight: float = field(default=0.0, metadata={"help": "[deprecated] attention alignment is disabled in recursive distillation"})
     recursive_enable_kv_cache: bool = field(default=True, metadata={"help": "enable teacher/eval-student output cache for recursive KD"})
     recursive_kv_cache_size: int = field(default=32, metadata={"help": "max entries in recursive KD cache"})
     recursive_eval_steps: int = field(default=2, metadata={"help": "number of recursive eval steps for recursive forward-pass emulation"})
