@@ -356,7 +356,7 @@ class RecursiveDistillationLoss(nn.Module):
             "teacher_qry",
             teacher_qry_input,
             enable_grad=False,
-            output_attentions=True,
+            output_attentions=False,
         )
         teacher_pos_output = self._encode_with_cache(
             teacher_model,
@@ -372,7 +372,7 @@ class RecursiveDistillationLoss(nn.Module):
             "student_eval_qry_base" if student_eval_cache_ok else "student_train_qry_base",
             student_qry_input,
             enable_grad=False,
-            output_attentions=True,
+            output_attentions=False,
         )
         student_pos_output = self._encode_with_cache(
             student_model,
