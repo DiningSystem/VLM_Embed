@@ -8,10 +8,11 @@ set -euo pipefail
 # - Therefore, eval_mmeb.py remains the correct evaluation entrypoint.
 
 SUBSETS=(
-  "ImageNet-1K" "N24News" "HatefulMemes" "VOC2007" "SUN397"
+  #"ImageNet-1K" "N24News" "HatefulMemes" "VOC2007" "SUN397"
+"OK-VQA" "A-OKVQA" "DocVQA" "InfographicsVQA" "ChartQA" "Visual7W"
 )
 
-DEFAULT_TRAIN_DIR="training/recursive_distill_cls2"
+DEFAULT_TRAIN_DIR="training/recursive_distill_vqa2"
 
 resolve_model_path() {
   local input_path="$1"
@@ -38,7 +39,7 @@ resolve_model_path() {
 }
 
 MODEL_PATH=$(resolve_model_path "${1:-}")
-OUTPUT_PATH=${2:-"MMEB-eval_outputs/recursive_distill_cls2"}
+OUTPUT_PATH=${2:-"MMEB-eval_outputs/recursive_distill_vqa2"}
 RECURSIVE_EVAL_STEPS=${3:-}
 
 echo "Using model checkpoint: ${MODEL_PATH}"
@@ -63,13 +64,13 @@ python eval_mmeb_recursive.py \
   --dataset_name TIGER-Lab/MMEB-eval \
   --subset_name "${SUBSETS[@]}" \
   --dataset_split test \
-  --per_device_eval_batch_size 1 \
+  --per_device_eval_batch_size 10 \
   --seed 42 \
   --image_dir eval_images/ \
   --tgt_prefix_mod \
   --image_resolution low \
   --load_pretrained_lora True \
-  --report_to none
+  --report_to wandb
 )
 
 if [[ -n "${RECURSIVE_EVAL_STEPS}" ]]; then
