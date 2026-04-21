@@ -13,7 +13,7 @@ from .utils import count_clean_text_tokens, get_hidden_text_vision
 class RecursiveDistillationLoss(nn.Module):
     """
     Recursive KD with explicit state recursion:
-        X^{k+1} = X^k + f_theta(X^k + e_k)
+        X^{k+1} = X^k + (1/K) * f_theta(X^k + e_k)
 
     In this implementation, f_theta is one *full* pass through the student model
     (`student_model.encode_input`) at each step k.
@@ -192,7 +192,7 @@ class RecursiveDistillationLoss(nn.Module):
     ):
         """
         Build recursive student token states:
-            X^{k+1} = X^k + f_theta(X^k + e_k), with first pass X^1 = f_theta(X^0 + e_0)
+            X^{k+1} = X^k + (1/K) * f_theta(X^k + e_k)
 
         Here f_theta is one *full* student forward pass each step.
         """
@@ -241,10 +241,8 @@ class RecursiveDistillationLoss(nn.Module):
             # Last recursive pass is used to produce representation only.
             if k == (k_steps - 1):
                 continue
-            if k == 0:
-                x_next = f_theta_out
-            else:
-                x_next = x_prev + f_theta_out
+            step_scale = 1.0 / float(k_steps)
+            x_next = x_prev + (step_scale * f_theta_out)
             update = x_next - x_prev
             if not grad_enabled_step:
                 # Keep non-backprop steps off GPU to reduce peak memory on long CLS batches.
