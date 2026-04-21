@@ -156,7 +156,9 @@ class MMEBModel(nn.Module):
             hidden_states = self.encoder(
                 **input,
                 return_dict=True,
-                output_hidden_states=output_hidden_states,
+                # LLAVA_QWEN2 outputs may not expose `last_hidden_state`; keep
+                # hidden states enabled so pooled_output can always be derived.
+                output_hidden_states=True,
                 output_attentions=output_attentions,
                 logits_to_keep=None,
             )

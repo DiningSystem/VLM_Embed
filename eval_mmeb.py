@@ -106,7 +106,7 @@ def encode_representations(model, batch, side: str, recursive_eval_steps: int = 
     # Match training recursive formula:
     # first pass: x_1 = f(x_0 + e_0)
     # later passes: x_{k+1} = x_k + (1/K) * f(x_k + e_k)
-    base_output = model.encode_input(batch, output_attentions=False, output_hidden_states=False)
+    base_output = model.encode_input(batch, output_attentions=False, output_hidden_states=True)
     _, _, _, hidden_states = base_output
     x_k = hidden_states[-1]
     attention_mask = batch["attention_mask"]
@@ -134,12 +134,12 @@ def encode_representations(model, batch, side: str, recursive_eval_steps: int = 
             output_attentions=False,
             output_hidden_states=(k < (recursive_eval_steps - 1)),
         )
-        f_x = step_output[3][-1]
         # Use pooled representation directly from the last recursive encoder pass.
         last_pass_reps = step_output[0]
         # Keep eval path aligned with training: last pass is representation-only.
         if k == (recursive_eval_steps - 1):
             continue
+        f_x = step_output[3][-1]
         step_scale = 1.0 / float(recursive_eval_steps)
         if k == 0:
             x_k = f_x

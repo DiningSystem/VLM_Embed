@@ -237,12 +237,12 @@ class RecursiveDistillationLoss(nn.Module):
             if capture_first_step_attn and k == 0:
                 first_step_attention = step_attention
                 first_step_image_features = step_image_features
-            f_theta_out = step_hidden[-1]
             final_reps = step_output[0]
 
             # Last recursive pass is used to produce representation only.
             if k == (k_steps - 1):
                 continue
+            f_theta_out = step_hidden[-1]
             step_scale = 1.0 / float(k_steps)
             if k == 0:
                 x_next = f_theta_out
@@ -419,7 +419,7 @@ class RecursiveDistillationLoss(nn.Module):
             student_qry_input,
             enable_grad=False,
             output_attentions=False,
-            output_hidden_states=False,
+            output_hidden_states=True,
         )
         student_pos_output = self._encode_with_cache(
             student_model,
@@ -427,7 +427,7 @@ class RecursiveDistillationLoss(nn.Module):
             student_pos_input,
             enable_grad=False,
             output_attentions=False,
-            output_hidden_states=False,
+            output_hidden_states=True,
         )
 
         teacher_qry_reps, teacher_qry_image_features, _, teacher_qry_hidden_states = teacher_qry_output
