@@ -59,7 +59,7 @@ class MMEBModel(nn.Module):
             return (attention_matrix[0],)
         return attention_matrix
 
-    def encode_input(self, input, output_attentions: bool = True):
+    def encode_input(self, input, output_attentions: bool = True, output_hidden_states: bool = True):
         INTERNVIDEO2 = "internvideo2"
         if getattr(self, "model_backbone", None) == INTERNVIDEO2:
             if "input_ids" in input.keys():
@@ -134,7 +134,7 @@ class MMEBModel(nn.Module):
             hidden_states = self.encoder(
                 **input,
                 return_dict=True,
-                output_hidden_states=True,
+                output_hidden_states=output_hidden_states,
                 output_attentions=output_attentions,
             )
             # add for image feature
@@ -142,19 +142,21 @@ class MMEBModel(nn.Module):
                 image_features = hidden_states.batch_image_embeds
             else: 
                 image_features = None
-            output_hidden_states = hidden_states.hidden_states
-            last_hidden_state = hidden_states.hidden_states[-1]
+            output_hidden_states_tensor = hidden_states.hidden_states
+            last_hidden_state = hidden_states.hidden_states[-1] if output_hidden_states_tensor is not None else hidden_states.last_hidden_state
+            if output_hidden_states_tensor is None:
+                output_hidden_states_tensor = (last_hidden_state,)
             attention_matrix = hidden_states.attentions if hasattr(hidden_states, 'attentions') else None
             attention_matrix = self._select_first_layer_attention(attention_matrix, output_attentions)
             pooled_output = self._pooling(last_hidden_state, input['attention_mask'])
             #print("len image features:", None if image_features is None else image_features.shape)
-            return pooled_output, image_features, attention_matrix, output_hidden_states
+            return pooled_output, image_features, attention_matrix, output_hidden_states_tensor
         elif getattr(self, "model_backbone", None) in [LLAVA_QWEN2, QWEN2_VL]:
             # print("Encoding input for FastVLM model backbone")
             hidden_states = self.encoder(
                 **input,
                 return_dict=True,
-                output_hidden_states=True,
+                output_hidden_states=output_hidden_states,
                 output_attentions=output_attentions,
                 logits_to_keep=None,
             )
@@ -162,27 +164,31 @@ class MMEBModel(nn.Module):
                 image_features = hidden_states.batch_image_embeds
             else: 
                 image_features = None
-            output_hidden_states = hidden_states.hidden_states
-            last_hidden_state = hidden_states.hidden_states[-1]
+            output_hidden_states_tensor = hidden_states.hidden_states
+            last_hidden_state = hidden_states.hidden_states[-1] if output_hidden_states_tensor is not None else hidden_states.last_hidden_state
+            if output_hidden_states_tensor is None:
+                output_hidden_states_tensor = (last_hidden_state,)
             attention_matrix = hidden_states.attentions if hasattr(hidden_states, 'attentions') else None
             attention_matrix = self._select_first_layer_attention(attention_matrix, output_attentions)
             pooled_output = self._pooling(last_hidden_state, input['attention_mask'])
 
-            return pooled_output, image_features, attention_matrix, output_hidden_states
+            return pooled_output, image_features, attention_matrix, output_hidden_states_tensor
         else:
             # import ipdb; ipdb.set_trace()
             hidden_states = self.encoder(
                 **input,
                 return_dict=True,
-                output_hidden_states=True,
+                output_hidden_states=output_hidden_states,
                 output_attentions=output_attentions,
             )
             if hasattr(hidden_states, 'batch_image_embeds'):
                 image_features = hidden_states.batch_image_embeds
             else: 
                 image_features = None
-            output_hidden_states = hidden_states.hidden_states
-            last_hidden_state = hidden_states.hidden_states[-1]
+            output_hidden_states_tensor = hidden_states.hidden_states
+            last_hidden_state = hidden_states.hidden_states[-1] if output_hidden_states_tensor is not None else hidden_states.last_hidden_state
+            if output_hidden_states_tensor is None:
+                output_hidden_states_tensor = (last_hidden_state,)
             attention_matrix = hidden_states.attentions if hasattr(hidden_states, 'attentions') else None
             attention_matrix = self._select_first_layer_attention(attention_matrix, output_attentions)
             pooled_output = self._pooling(last_hidden_state, input['attention_mask'])
@@ -190,7 +196,7 @@ class MMEBModel(nn.Module):
             # all_layers_embeds = torch.stack([self._pooling(hidden_state, input['attention_mask']) 
             #                                 for hidden_state in hidden_states.hidden_states]).permute(1, 0, 2)
             
-            return pooled_output, image_features, attention_matrix, output_hidden_states
+            return pooled_output, image_features, attention_matrix, output_hidden_states_tensor
         """
             - num_tokens = num_image_tokens - 1 + text_tokens
             - hidden_states.hidden_states: (num_layers, batch, num_tokens, embed_dim)

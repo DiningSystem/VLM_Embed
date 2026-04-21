@@ -104,9 +104,8 @@ def _step_embedding(step: int, dim: int, device, dtype):
 def encode_representations(model, batch, side: str, recursive_eval_steps: int = 1):
     recursive_eval_steps = max(1, int(recursive_eval_steps))
     # Match training recursive formula:
-    # first pass: x_1 = f(x_0 + e_0)
-    # from second pass: x_{k+1} = x_k + f(x_k + e_k)
-    base_output = model.encode_input(batch, output_attentions=False)
+    # x_{k+1} = x_k + f(x_k + e_k), with first pass x_1 = f(x_0 + e_0)
+    base_output = model.encode_input(batch, output_attentions=False, output_hidden_states=False)
     _, _, _, hidden_states = base_output
     x_k = hidden_states[-1]
     attention_mask = batch["attention_mask"]
@@ -129,13 +128,21 @@ def encode_representations(model, batch, side: str, recursive_eval_steps: int = 
             if key in batch:
                 step_input[key] = batch[key]
 
-        step_output = model.encode_input(step_input, output_attentions=False)
+        step_output = model.encode_input(
+            step_input,
+            output_attentions=False,
+            output_hidden_states=(k < (recursive_eval_steps - 1)),
+        )
         f_x = step_output[3][-1]
+        # Use pooled representation directly from the last recursive encoder pass.
+        last_pass_reps = step_output[0]
+        # Keep eval path aligned with training: last pass is representation-only.
+        if k == (recursive_eval_steps - 1):
+            continue
         if k == 0:
             x_k = f_x
         else:
             x_k = x_k + f_x
-        last_pass_reps = model._pooling(x_k, attention_mask)
 
     return last_pass_reps
 
