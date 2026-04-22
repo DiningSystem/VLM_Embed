@@ -85,6 +85,46 @@ def batch_to_device(batch, device):
     return _batch
 
 
+def _subset_meta_path(output_dir: str, subset: str) -> str:
+    return os.path.join(output_dir, f"{subset}_meta.json")
+
+
+def _current_eval_meta(model_args, recursive_eval_steps: int):
+    return {
+        "recursive_eval_steps": int(recursive_eval_steps),
+        "model_name": str(model_args.model_name),
+        "pooling": str(model_args.pooling),
+        "normalize": bool(model_args.normalize),
+        "model_backbone": str(model_args.model_backbone),
+    }
+
+
+def _load_subset_meta(output_dir: str, subset: str):
+    meta_path = _subset_meta_path(output_dir, subset)
+    if not os.path.exists(meta_path):
+        return None
+    try:
+        with open(meta_path, "r") as f:
+            return json.load(f)
+    except Exception:
+        return None
+
+
+def _is_cache_compatible(cached_meta, current_meta):
+    if cached_meta is None:
+        return False
+    for k, v in current_meta.items():
+        if cached_meta.get(k) != v:
+            return False
+    return True
+
+
+def _save_subset_meta(output_dir: str, subset: str, meta: dict):
+    meta_path = _subset_meta_path(output_dir, subset)
+    with open(meta_path, "w") as f:
+        json.dump(meta, f, indent=2)
+
+
 def _step_embedding(step: int, dim: int, device, dtype):
     half = dim // 2
     if half == 0:
@@ -101,7 +141,7 @@ def _step_embedding(step: int, dim: int, device, dtype):
     return emb.view(1, 1, dim)
 
 
-def encode_representations(model, batch, side: str, recursive_eval_steps: int = 1):
+def encode_representations(model, batch, side: str, recursive_eval_steps: int = 2):
     recursive_eval_steps = max(1, int(recursive_eval_steps))
     # Match training recursive formula:
     # first pass: x_1 = f(x_0 + e_0)
@@ -132,13 +172,10 @@ def encode_representations(model, batch, side: str, recursive_eval_steps: int = 
         step_output = model.encode_input(
             step_input,
             output_attentions=False,
-            output_hidden_states=(k < (recursive_eval_steps - 1)),
+            output_hidden_states=True,
         )
-        # Use pooled representation directly from the last recursive encoder pass.
+        # Representation must come from the final recursive pass output.
         last_pass_reps = step_output[0]
-        # Keep eval path aligned with training: last pass is representation-only.
-        if k == (recursive_eval_steps - 1):
-            continue
         f_x = step_output[3][-1]
         step_scale = 1.0 / float(recursive_eval_steps)
         if k == 0:
@@ -237,7 +274,7 @@ def main():
     #     model.encoder.merge_and_unload()
     model.eval()
     model = model.to(training_args.device, dtype=torch.bfloat16)
-    print_rank("Using sinusoidal recursive step embeddings.")
+    print_rank("Recursive step embedding mode: sinusoidal (matches current recursive training).")
 
     eval_collator = EvalCollator(
         data_args=data_args,
@@ -247,8 +284,12 @@ def main():
 
     # ToDo: This part of code is a little bit hacky. Need to refactor later.
     for idx, subset in enumerate(data_args.subset_name):
+        current_meta = _current_eval_meta(model_args, recursive_eval_steps)
+        cached_meta = _load_subset_meta(data_args.encode_output_path, subset)
+        cache_compatible = _is_cache_compatible(cached_meta, current_meta)
+
         score_path = os.path.join(data_args.encode_output_path, f"{subset}_score.json")
-        if os.path.exists(score_path):
+        if os.path.exists(score_path) and cache_compatible:
             try:
                 with open(score_path, "r") as f:
                     score_dict = json.load(f)
@@ -261,8 +302,13 @@ def main():
         print(f"\033[91m{idx+1}/{len(data_args.subset_name)}: Processing {subset} now!\033[0m")
         encode_qry_path = os.path.join(data_args.encode_output_path, f"{subset}_qry")
         encode_tgt_path = os.path.join(data_args.encode_output_path, f"{subset}_tgt")
-        if os.path.exists(encode_qry_path) and os.path.exists(encode_tgt_path):
+        if os.path.exists(encode_qry_path) and os.path.exists(encode_tgt_path) and cache_compatible:
             continue
+        if (os.path.exists(encode_qry_path) or os.path.exists(encode_tgt_path)) and (not cache_compatible):
+            print(f"Cache mismatch for {subset}. Recomputing encodings with current eval settings.")
+            for stale_path in [encode_qry_path, encode_tgt_path, score_path]:
+                if os.path.exists(stale_path):
+                    os.remove(stale_path)
 
         eval_qry_dataset = EvalDataset(
             data_args=data_args,
@@ -333,15 +379,20 @@ def main():
             with open(encode_tgt_path, 'wb') as f:
                 pickle.dump((encoded_tensor, eval_tgt_dataset.paired_data), f)
 
+        _save_subset_meta(data_args.encode_output_path, subset, current_meta)
+
     # -------------------------------------------------------------------------
     # SCORE CALCULATION & WANDB LOGGING LOOP
     # -------------------------------------------------------------------------
     for subset in tqdm(data_args.subset_name, desc="Iterate datasets to calculate scores"):
         print(f"\033[91m{subset}: Calculating score now!\033[0m")
         score_path = os.path.join(data_args.encode_output_path, f"{subset}_score.json")
+        current_meta = _current_eval_meta(model_args, recursive_eval_steps)
+        cached_meta = _load_subset_meta(data_args.encode_output_path, subset)
+        cache_compatible = _is_cache_compatible(cached_meta, current_meta)
         
         # ### MODIFIED: Handle Cached Results for Wandb
-        if os.path.exists(score_path):
+        if os.path.exists(score_path) and cache_compatible:
             try:
                 with open(score_path, "r") as f:
                     score_dict = json.load(f)
