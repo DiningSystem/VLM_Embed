@@ -31,7 +31,7 @@ torchrun --nproc_per_node=$NUM_GPUS_PER_NODE \
     --dataset_split "original" \
     --image_dir "vlm2vec_train/MMEB-train" \
     --percent_data 1.0 \
-    --output_dir "training/vqa_03eos_07er_combined_${EOS_PROJECTION_SPACE}" \
+    --output_dir "training/retrieval_05eos_03er_combined_${EOS_PROJECTION_SPACE}" \
     --per_device_train_batch_size 16 \
     --gradient_accumulation_steps 1 \
     --learning_rate 1e-4 \
@@ -47,7 +47,7 @@ torchrun --nproc_per_node=$NUM_GPUS_PER_NODE \
     --lr_scheduler_type "constant" \
     --warmup_ratio 0.03 \
     --temperature "${TEMPERATURE}" \
-    --kd_loss_type "eos_er_combined_loss_retrieval" \
+    --kd_loss_type "eos_er_combined_loss" \
     --eos_projection_space "${EOS_PROJECTION_SPACE}" \
     --eos_kd_weight "${EOS_KD_WEIGHT}" \
     --er_kd_weight "${ER_KD_WEIGHT}" \
