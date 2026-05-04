@@ -119,13 +119,53 @@ class Distiller(nn.Module):
         self.training_args = training_args
         self.student = self._load_student()
         self.teacher = self._load_teacher()
-        self.student_hidden_dim = self.model_args.student_hidden_dim
-        self.teacher_hidden_dim = self.model_args.teacher_hidden_dim
+        self.student_hidden_dim = self._resolve_hidden_dim(self.student, self.model_args.student_hidden_dim, "student")
+        self.teacher_hidden_dim = self._resolve_hidden_dim(self.teacher, self.model_args.teacher_hidden_dim, "teacher")
         self.temperature = model_args.temperature
         self.tokenizer = AutoTokenizer.from_pretrained(self.model_args.teacher_model_name)
         # if self.model_args.projector_config_path is not None:
         self.set_projector()
         print("Projectors set.")
+    
+    def _resolve_hidden_dim(self, model, fallback_dim, role):
+        """Resolve model hidden size from runtime model; fallback to args when unavailable."""
+        candidates = []
+        for attr in ("hidden_size", "d_model", "dim", "text_config.hidden_size"):
+            cur = model
+            ok = True
+            for key in attr.split("."):
+                if hasattr(cur, key):
+                    cur = getattr(cur, key)
+                else:
+                    ok = False
+                    break
+            if ok and isinstance(cur, int):
+                candidates.append(cur)
+
+        for module_name in ("model", "backbone", "language_model"):
+            submodule = getattr(model, module_name, None)
+            if submodule is not None:
+                cfg = getattr(submodule, "config", None)
+                if cfg is not None:
+                    for key in ("hidden_size", "d_model", "dim"):
+                        value = getattr(cfg, key, None)
+                        if isinstance(value, int):
+                            candidates.append(value)
+
+        cfg = getattr(model, "config", None)
+        if cfg is not None:
+            for key in ("hidden_size", "d_model", "dim"):
+                value = getattr(cfg, key, None)
+                if isinstance(value, int):
+                    candidates.append(value)
+
+        resolved = next((x for x in candidates if x > 0), None)
+        if resolved is None:
+            print(f"[WARN] Could not infer {role} hidden dim from model; using fallback={fallback_dim}")
+            return fallback_dim
+        if resolved != fallback_dim:
+            print(f"[INFO] Using inferred {role} hidden dim={resolved} (overriding arg value={fallback_dim})")
+        return resolved
     
     def _create_model_args(self, model_type='teacher'):
         if model_type == 'teacher': 
