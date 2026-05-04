@@ -4,7 +4,7 @@
 HF_TOKEN="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"
 REPO_ID="DiningSystem/vlm-weights"
 FILE_OR_DIR="./training"
-ZIP_NAME="training.zip"
+ZIP_NAME="./training.zip"
 
 # ==== LOGIN (non-interactive) ====
 hf auth login --token "$HF_TOKEN"
