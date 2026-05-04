@@ -32,7 +32,7 @@ torchrun --nproc_per_node=$NUM_GPUS_PER_NODE \
     --dataset_split "original" \
     --image_dir "vlm2vec_train/MMEB-train" \
     --percent_data 1.0 \
-    --output_dir "training/grounding_05eos_03er_combined_${EOS_PROJECTION_SPACE}" \
+    --output_dir "training/grounding2epoch_05eos_03er_combined_${EOS_PROJECTION_SPACE}" \
     --per_device_train_batch_size 8 \
     --gradient_accumulation_steps 1 \
     --learning_rate 1e-4 \
