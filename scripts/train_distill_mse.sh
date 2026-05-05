@@ -56,7 +56,6 @@ torchrun --nproc_per_node=$NUM_GPUS_PER_NODE \
     --kd_weight 0.3 \
     --kd_loss_type "norm" \
     --image_resolution "mid" \
-    --ddp_find_unused_parameters True \
     --projector_config_path "./config/projector_config.json" \
     --projector_lr 5e-4 \
     --report_to None

@@ -33,6 +33,15 @@ class NormKD(nn.Module):
         all_tensors = torch.cat(all_tensors, dim=0)
         return all_tensors
     
+    def _touch_all_projectors(self, reference: torch.Tensor):
+        if not hasattr(self.distiller, "projectors") or self.distiller.projectors is None:
+            return reference.new_zeros(())
+
+        touched = reference.new_zeros(())
+        for param in self.distiller.projectors.parameters():
+            touched = touched + (param.reshape(-1)[:1].float().sum() * 0.0).to(reference.dtype)
+        return touched
+
     def forward(self, distiller, input_data):
         self.distiller = distiller
         student_model = distiller.student
@@ -71,8 +80,9 @@ class NormKD(nn.Module):
 
         projected_teacher_qry_reps = self.distiller.projectors["t2s_txt"](teacher_qry_reps)
         self.kd_loss_mse_seq = self.mse_loss(student_qry_reps, projected_teacher_qry_reps)
+        projector_graph_anchor = self._touch_all_projectors(contrastive_loss)
 
-        total_loss = contrastive_loss + self.kd_loss_weight * self.kd_loss_mse_seq
+        total_loss = contrastive_loss + self.kd_loss_weight * self.kd_loss_mse_seq + projector_graph_anchor
         return {
             "loss": total_loss, 
             "contrastive_loss": contrastive_loss,
