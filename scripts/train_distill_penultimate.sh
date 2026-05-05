@@ -14,7 +14,8 @@ TRAIN_SCRIPT="train_distill_ddp.py"
 SUBSETS=(
 #  "ImageNet_1K" "N24News" "HatefulMemes" "VOC2007" "SUN397"
 #   "OK-VQA" "A-OKVQA" "DocVQA" "InfographicsVQA" "ChartQA"
-"VisDial" "CIRR" "VisualNews_i2t" "VisualNews_t2i" "MSCOCO_i2t" "MSCOCO_t2i" "NIGHTS" "WebQA"
+#"VisDial" "CIRR" "VisualNews_i2t" "VisualNews_t2i" "MSCOCO_i2t" "MSCOCO_t2i" "NIGHTS" "WebQA"
+"MSCOCO"
 )
 
 # =========================================================================
@@ -37,7 +38,7 @@ torchrun --nproc_per_node=$NUM_GPUS_PER_NODE \
     --dataset_split "original" \
     --image_dir "vlm2vec_train/MMEB-train" \
     --percent_data 1.0 \
-    --output_dir "training/penultimate_mse" \
+    --output_dir "training/penultimate_mse_grounding" \
     --per_device_train_batch_size 8 \
     --gradient_accumulation_steps 1 \
     --learning_rate 1e-4 \
