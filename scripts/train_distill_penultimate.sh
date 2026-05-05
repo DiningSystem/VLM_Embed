@@ -12,8 +12,9 @@ TRAIN_SCRIPT="train_distill_ddp.py"
 # )
 
 SUBSETS=(
-  "ImageNet_1K" "N24News" "HatefulMemes" "VOC2007" "SUN397"
+#  "ImageNet_1K" "N24News" "HatefulMemes" "VOC2007" "SUN397"
 #   "OK-VQA" "A-OKVQA" "DocVQA" "InfographicsVQA" "ChartQA"
+"VisDial" "CIRR" "VisualNews_i2t" "VisualNews_t2i" "MSCOCO_i2t" "MSCOCO_t2i" "NIGHTS" "WebQA"
 )
 
 # =========================================================================
@@ -36,7 +37,7 @@ torchrun --nproc_per_node=$NUM_GPUS_PER_NODE \
     --dataset_split "original" \
     --image_dir "vlm2vec_train/MMEB-train" \
     --percent_data 1.0 \
-    --output_dir "training/penultimate" \
+    --output_dir "training/penultimate_mse" \
     --per_device_train_batch_size 8 \
     --gradient_accumulation_steps 1 \
     --learning_rate 1e-4 \
@@ -53,7 +54,7 @@ torchrun --nproc_per_node=$NUM_GPUS_PER_NODE \
     --warmup_ratio 0.03 \
     --kd_weight 0.3 \
     --kd_loss_type "penultimate_mse" \
-    --image_resolution "low" \
+    --image_resolution "mid" \
     --projector_config_path "./config/projector_config_2.json" \
-    --projector_lr 5e-5 \
-    --report_to wandb 
+    --projector_lr 5e-4 \
+    --report_to None
