@@ -22,6 +22,7 @@ from .contrastive_pooling_loss import ContrastivePoolingLoss
 from .eos_attention_kl_loss import EOSAttentionKLLoss
 from .eos_attention_kl_intra_cosine_loss import EOSAttentionKLIntraCosineLoss
 from .eos_er_combined_loss import EOSERCombinedLoss
+from .norm_kd import NormKD
 
 criterion_list = {
     "contrastive": ContrastiveLoss,
@@ -49,6 +50,7 @@ criterion_list = {
     "eos_attention_kl_loss": EOSAttentionKLLoss,
     "eos_attention_kl_intra_cosine_loss": EOSAttentionKLIntraCosineLoss,
     "eos_er_combined_loss": EOSERCombinedLoss,
+    "norm": NormKD,
 }
 
 def build_criterion(args):

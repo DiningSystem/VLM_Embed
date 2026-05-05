@@ -38,7 +38,7 @@ torchrun --nproc_per_node=$NUM_GPUS_PER_NODE \
     --dataset_split "original" \
     --image_dir "vlm2vec_train/MMEB-train" \
     --percent_data 1.0 \
-    --output_dir "training/penultimate_mse_grounding" \
+    --output_dir "training/mse_grounding" \
     --per_device_train_batch_size 8 \
     --gradient_accumulation_steps 1 \
     --learning_rate 1e-4 \
@@ -54,8 +54,8 @@ torchrun --nproc_per_node=$NUM_GPUS_PER_NODE \
     --lr_scheduler_type "cosine" \
     --warmup_ratio 0.03 \
     --kd_weight 0.3 \
-    --kd_loss_type "penultimate_mse" \
+    --kd_loss_type "norm" \
     --image_resolution "mid" \
-    --projector_config_path "./config/projector_config_2.json" \
+    --projector_config_path "./config/projector_config.json" \
     --projector_lr 5e-4 \
     --report_to None
