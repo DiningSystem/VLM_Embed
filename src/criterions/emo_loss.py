@@ -15,6 +15,13 @@ class CKALoss(nn.Module):
         SH = SH.view(-1, dS).to(torch.float64)
         TH = TH.view(-1, dT).to(torch.float64)
 
+        # CKA requires matching sample dimension; tokenize mismatch can occur
+        # between teacher/student after top-k index projection.
+        if SH.size(0) != TH.size(0):
+            n = min(SH.size(0), TH.size(0))
+            SH = SH[:n]
+            TH = TH[:n]
+
         SH = SH - SH.mean(0, keepdim=True)
         TH = TH - TH.mean(0, keepdim=True)
 
