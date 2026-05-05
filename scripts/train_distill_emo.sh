@@ -48,4 +48,5 @@ torchrun --standalone \
     --kd_loss_type "emo_loss" \
     --image_resolution "mid" \
     --projector_config_path "./config/projector_config_emo.json" \
-    --projector_lr 5e-4
+    --projector_lr 5e-4 \
+    --report_to None
