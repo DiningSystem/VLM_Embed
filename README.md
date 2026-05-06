@@ -54,5 +54,15 @@ bash scripts/train_distill_propose_V.sh
 bash eval.sh
 ```
 
+2. To evaluate Flickr1K image-text retrieval, run:
+```bash
+bash scripts/eval_flickr.sh <model_name_or_path> <output_dir> [extra_args]
+```
+Example:
+```bash
+bash scripts/eval_flickr.sh Qwen/Qwen2-VL-2B-Instruct ./outputs/flickr_eval --per_device_eval_batch_size 8
+```
+This prints i2t/t2i Recall@1/5/10 and mean recall.
+
 ## Acknowledgement
 - We have adapted code from [VLM2Vec]([https://github.com/TIGER-AI-Lab/VLM2Vec]) and [B3](https://github.com/raghavlite/B3)
