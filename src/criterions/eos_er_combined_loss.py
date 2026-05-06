@@ -324,20 +324,23 @@ class EOSERCombinedLoss(nn.Module):
         student_qry_text, student_qry_vision = self._build_pooled_reps(
             student_qry_reps, student_qry_image_features, student_qry_hidden_states, student_qry_input["attention_mask"], num_student_text_qry_tokens
         )
-        # student_pos_text, student_pos_vision = self._build_pooled_reps(
-        #     student_pos_reps, student_pos_image_features, student_pos_hidden_states, student_pos_input["attention_mask"], num_student_text_pos_tokens
-        # )
+        student_pos_text, student_pos_vision = self._build_pooled_reps(
+            student_pos_reps, student_pos_image_features, student_pos_hidden_states, student_pos_input["attention_mask"], num_student_text_pos_tokens
+        )
         teacher_qry_text, teacher_qry_vision = self._build_pooled_reps(
             teacher_qry_reps, teacher_qry_image_features, teacher_qry_hidden_states, teacher_qry_input["attention_mask"], num_teacher_text_qry_tokens
         )
-        # teacher_pos_text, teacher_pos_vision = self._build_pooled_reps(
-        #     teacher_pos_reps, teacher_pos_image_features, teacher_pos_hidden_states, teacher_pos_input["attention_mask"], num_teacher_text_pos_tokens
-        # )
-
-        eos_loss = 1.0 * (
-            self._pair_eos_loss(teacher_qry_text, teacher_qry_vision, student_qry_text, student_qry_vision)
-            #+ self._pair_eos_loss(teacher_pos_text, teacher_pos_vision, student_pos_text, student_pos_vision)
+        teacher_pos_text, teacher_pos_vision = self._build_pooled_reps(
+            teacher_pos_reps, teacher_pos_image_features, teacher_pos_hidden_states, teacher_pos_input["attention_mask"], num_teacher_text_pos_tokens
         )
+
+        eos_qry_loss = self._pair_eos_loss(
+            teacher_qry_text, teacher_qry_vision, student_qry_text, student_qry_vision
+        )
+        eos_pos_loss = self._pair_eos_loss(
+            teacher_pos_text, teacher_pos_vision, student_pos_text, student_pos_vision
+        )
+        eos_loss = 0.5 * (eos_qry_loss + eos_pos_loss)
 
         er_qry_loss = self._compute_er_loss(
             batch_size,
