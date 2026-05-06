@@ -5,16 +5,9 @@ set -euo pipefail
 #   bash scripts/eval_flickr.sh <model_name_or_path> <output_dir> [extra eval args ...]
 # Example:
 #   bash scripts/eval_flickr.sh Qwen/Qwen2-VL-2B-Instruct ./outputs/flickr_eval --per_device_eval_batch_size 8
+MODEL=./training/results_0305/grounding_05eos_03er_combined_student/checkpoint-final
+OUTPUT_DIR=./MMEB-eval_outputs/FLICKR_05eos_03er_combined_student
 
-MODEL_NAME=${1:-}
-OUTPUT_DIR=${2:-}
-
-if [[ -z "$MODEL_NAME" || -z "$OUTPUT_DIR" ]]; then
-  echo "Usage: bash scripts/eval_flickr.sh <model_name_or_path> <output_dir> [extra args...]"
-  exit 1
-fi
-
-shift 2
 
 python eval_flickr.py \
   --model_name "$MODEL_NAME" \
