@@ -1,17 +1,18 @@
 SUBSETS=(
-   #"ImageNet-1K" "N24News" "HatefulMemes" "VOC2007" "SUN397"
+   "ImageNet-1K" "N24News" "HatefulMemes" "VOC2007" "SUN397"
    # "ImageNet-1K"
    #"OK-VQA" "A-OKVQA" "DocVQA" "InfographicsVQA" "ChartQA" "Visual7W"
 #"ImageNet-1K" "N24News" "HatefulMemes"
 #"VOC2007"
 #"MSCOCO" "RefCOCO" "RefCOCO-Matching" "Visual7W-Pointing"
-"VisDial" "CIRR" "VisualNews_i2t" "VisualNews_t2i" "MSCOCO_i2t" "MSCOCO_t2i" "NIGHTS" "WebQA"
+#"VisDial" "CIRR" "VisualNews_i2t" "VisualNews_t2i" "MSCOCO_i2t" "MSCOCO_t2i" "NIGHTS" "WebQA"
 )
 
-MODEL=./training/results_0305/retrieval_05eos_03er_combined_student/checkpoint-final
+#MODEL=./training/results_0305/retrieval_05eos_03er_combined_student/checkpoint-final
+MODEL=./training/qwen7B_05eos_03er_combined_student2/checkpoint-final
 python eval_mmeb.py \
     --model_name $MODEL \
-    --encode_output_path ./MMEB-eval_outputs/retrieval_05eos_03er_combined_student2/ \
+    --encode_output_path ./MMEB-eval_outputs/qwen7B_05eos_03er_combined_student5/ \
     --lora True --lora_r 8 --lora_alpha 64 \
     --pooling eos \
     --model_backbone llava_qwen2 \
@@ -24,6 +25,6 @@ python eval_mmeb.py \
     --seed 100 \
     --image_dir eval_images/ \
     --tgt_prefix_mod \
-    --image_resolution "mid" \
+    --image_resolution "low" \
     --load_pretrained_lora True \
     --report_to none
